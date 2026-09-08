@@ -1,0 +1,75 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: tasks-selfhosted:latest
+    container_name: tasks
+    restart: unless-stopped
+
+    # PID 1 that reaps zombies and forwards signals.
+    init: true
+
+    # No ports published. The container is reachable only from the proxy
+    # network, so nothing on the LAN can talk to it directly and the reverse
+    # proxy is the single way in. See docs/nginx-proxy-manager.md.
+    expose:
+      - "8080"
+
+    environment:
+      # ── Required ──
+      # Exactly the address you type in the browser. Passkeys are bound to this
+      # hostname; changing it invalidates every registered passkey.
+      APP_ORIGIN: ${APP_ORIGIN:?APP_ORIGIN is required, e.g. https://tasks.example.com}
+
+      # ── Optional ──
+      RP_NAME: ${RP_NAME:-Tasks}
+      ACCOUNT_DISPLAY_NAME: ${ACCOUNT_DISPLAY_NAME:-Tasks}
+      SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-30}
+      SESSION_ROTATE_HOURS: ${SESSION_ROTATE_HOURS:-24}
+      ENROLLMENT_TOKEN_TTL_MINUTES: ${ENROLLMENT_TOKEN_TTL_MINUTES:-15}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Local time zone, so "today" and due dates match your calendar.
+      TZ: ${TZ:-Europe/Berlin}
+      # Only these proxy sources are believed when they set X-Forwarded-For.
+      TRUST_PROXY: ${TRUST_PROXY:-loopback,linklocal,uniquelocal}
+
+    volumes:
+      - tasks-data:/data
+
+    # ── Hardening ────────────────────────────────────────────────────────
+    # The image ships its code read-only and the process runs as uid 1000, so
+    # the only writable path is the data volume.
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 256
+
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    networks:
+      - proxy
+
+networks:
+  # Created by your Nginx Proxy Manager stack. Set PROXY_NETWORK if yours has
+  # a different name:  docker network ls
+  proxy:
+    external: true
+    name: ${PROXY_NETWORK:-npm_default}
+
+volumes:
+  tasks-data:
+    name: ${DATA_VOLUME:-tasks-data}

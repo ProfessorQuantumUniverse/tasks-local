@@ -1,1 +1,8 @@
+node_modules/
+data/
+
+# Local configuration, may contain the deployment's hostname
+.env
+.env.local
+
 demo.html

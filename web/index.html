@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="color-scheme" content="dark">
+    <meta name="referrer" content="no-referrer">
+    <title>Tasks</title>
+    <link rel="icon" href="/icon.svg" type="image/svg+xml">
+    <link rel="manifest" href="/site.webmanifest">
+    <link rel="stylesheet" href="/vendor/fonts/fonts.css">
+    <link rel="stylesheet" href="/css/app.css">
+    <link rel="stylesheet" href="/css/auth.css">
+</head>
+<body>
+    <div class="container">
+
+        <!-- ── Authentication ─────────────────────────────────────────── -->
+        <div id="login-container">
+            <h1>&#10003; Tasks</h1>
+
+            <!-- Sign in with an existing passkey -->
+            <div class="auth-pane active" data-pane="login">
+                <p class="auth-lead">Melde dich mit deinem Passkey an.</p>
+                <button id="login-btn" class="auth-primary-btn">
+                    <span class="material-symbols-outlined ms-20">passkey</span>
+                    Mit Passkey anmelden
+                </button>
+                <div class="auth-links">
+                    <button type="button" class="auth-link" data-goto="enroll">Neues Ger&auml;t anmelden</button>
+                    <button type="button" class="auth-link" data-goto="recovery">Passkey verloren?</button>
+                </div>
+            </div>
+
+            <!-- First run / adding another device, using an enrollment token -->
+            <div class="auth-pane" data-pane="enroll">
+                <p class="auth-lead" id="enroll-lead">Gib den Enrollment-Token ein, um dieses Ger&auml;t zu registrieren.</p>
+                <label class="auth-label" for="enroll-token">Enrollment-Token</label>
+                <input type="text" id="enroll-token" class="auth-input" autocomplete="off"
+                       autocapitalize="off" autocorrect="off" spellcheck="false"
+                       placeholder="Token aus den Container-Logs">
+                <label class="auth-label" for="enroll-name">Ger&auml;tename</label>
+                <input type="text" id="enroll-name" class="auth-input" maxlength="60"
+                       autocomplete="off" placeholder="z.B. iPhone">
+                <button id="enroll-btn" class="auth-primary-btn">
+                    <span class="material-symbols-outlined ms-20">add_moderator</span>
+                    Passkey registrieren
+                </button>
+                <div class="auth-links">
+                    <button type="button" class="auth-link" data-goto="login">Zur&uuml;ck zur Anmeldung</button>
+                </div>
+            </div>
+
+            <!-- Recovery code -> fresh enrollment token -->
+            <div class="auth-pane" data-pane="recovery">
+                <p class="auth-lead">
+                    Gib einen deiner Recovery-Codes ein. Danach kannst du sofort einen neuen
+                    Passkey registrieren. Alle bestehenden Sitzungen werden dabei beendet.
+                </p>
+                <label class="auth-label" for="recovery-code">Recovery-Code</label>
+                <input type="text" id="recovery-code" class="auth-input" autocomplete="off"
+                       autocapitalize="characters" autocorrect="off" spellcheck="false"
+                       placeholder="XXXXX-XXXXX">
+                <button id="recovery-btn" class="auth-primary-btn">
+                    <span class="material-symbols-outlined ms-20">lock_open</span>
+                    Code einl&ouml;sen
+                </button>
+                <div class="auth-links">
+                    <button type="button" class="auth-link" data-goto="login">Zur&uuml;ck zur Anmeldung</button>
+                </div>
+            </div>
+
+            <div id="auth-message" class="auth-message" role="status" aria-live="polite"></div>
+        </div>
+        <!-- App Container (hidden until signed in) -->
+        <div id="app">
+            <div class="header">
+                <div class="welcome">
+                    Hallo, <span id="user-name">User</span>! <span class="material-symbols-outlined ms-green ms-22 ms-inline">waving_hand</span>
+                </div>
+                <div class="header-actions">
+                    <button id="lock-btn" class="lock-btn" title="Drag-Kategorien sperren">
+                        <span class="material-symbols-outlined ms-20">lock</span>
+                    </button>
+                    <button id="settings-btn" class="settings-btn" title="Einstellungen">
+                        <span class="material-symbols-outlined ms-20">settings</span>
+                    </button>
+                    <button id="logout-btn">Logout</button>
+                </div>
+            </div>
+
+            <!-- Task Form -->
+            <div class="task-form">
+                <h2>Neue Aufgabe</h2>
+                <div class="form-group">
+                    <label for="task-title">Titel</label>
+                    <input type="text" id="task-title" placeholder="Was möchtest du erledigen?">
+                </div>
+                <div class="form-group">
+                    <label for="task-due">Fälligkeitsdatum</label>
+                    <input type="date" id="task-due">
+                </div>
+                <div class="form-group">
+                    <label for="task-repeat">Wiederholung</label>
+                    <select id="task-repeat">
+                        <option value="none">Keine</option>
+                        <option value="daily">Täglich</option>
+                        <option value="every2days">Alle 2 Tage</option>
+                        <option value="every3days">Alle 3 Tage</option>
+                        <option value="weekly">Wöchentlich</option>
+                        <option value="monthly">Monatlich</option>
+                    </select>
+                </div>
+                <button id="add-task-btn">Aufgabe hinzufügen</button>
+            </div>
+
+            <!-- Tasks List -->
+            <div class="tasks-list">
+                <h2>Meine Aufgaben <span id="task-count-badge"></span></h2>
+                <div id="tasks-container">
+                    <div class="loading">Lade Aufgaben...</div>
+                </div>
+            </div>
+        </div>
+        <footer class="app-footer">
+            <span class="footer-note">Selbst gehostet &middot; <span id="sync-indicator" class="sync-indicator">&nbsp;</span></span>
+        </footer>
+    </div>
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="settings-overlay">
+        <div class="settings-panel">
+            <div class="settings-header">
+                <h3><span class="material-symbols-outlined ms-22">settings</span> Einstellungen</h3>
+                <button id="settings-close-btn" class="settings-close-btn">
+                    <span class="material-symbols-outlined ms-18">close</span>
+                </button>
+            </div>
+            <div class="settings-tabs">
+                <button class="settings-tab-btn active" data-tab="appearance">
+                    <span class="material-symbols-outlined ms-16">palette</span> Aussehen
+                </button>
+                <button class="settings-tab-btn" data-tab="cards">
+                    <span class="material-symbols-outlined ms-16">style</span> Karten
+                </button>
+                <button class="settings-tab-btn" data-tab="behavior">
+                    <span class="material-symbols-outlined ms-16">tune</span> Verhalten
+                </button>
+                <button class="settings-tab-btn" data-tab="labs">
+                    <span class="material-symbols-outlined ms-16">science</span> Labs
+                </button>
+                <button class="settings-tab-btn" data-tab="account">
+                    <span class="material-symbols-outlined ms-16">shield_person</span> Konto
+                </button>
+            </div>
+            <div class="settings-body">
+
+                <!-- ── Appearance ── -->
+                <div class="settings-tab-pane active" data-tab="appearance">
+                    <div class="settings-group-title">Schrift</div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Schriftart</span>
+                            <span class="settings-hint">Interface-Schriftart der App</span>
+                        </div>
+                        <select id="s-fontFamily" class="settings-select">
+                            <option value="Exo 2">Exo 2 (Standard)</option>
+                            <option value="Orbitron">Orbitron (Sci-Fi)</option>
+                            <option value="Audiowide">Audiowide</option>
+                            <option value="Nasalization">Nasalization</option>
+                            <option value="Rajdhani">Rajdhani</option>
+                            <option value="Inter">Inter (Clean)</option>
+                            <option value="Share Tech Mono">Share Tech Mono</option>
+                            <option value="JetBrains Mono">JetBrains Mono</option>
+                            <option value="Press Start 2P">Press Start 2P</option>
+                            <option value="VT323">VT323 (Terminal)</option>
+                        </select>
+                    </div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Schriftgröße</span>
+                            <span class="settings-hint">Basis-Textgröße</span>
+                        </div>
+                        <div class="range-group">
+                            <input type="range" id="s-fontSize" class="settings-range" min="13" max="19" step="1" value="16">
+                            <span class="range-val" id="s-fontSize-val">16px</span>
+                        </div>
+                    </div>
+                    <div class="settings-group-title">Farbe &amp; Stil</div>
+                    <div class="settings-row color-row">
+                        <div class="settings-label">
+                            <span>Akzentfarbe</span>
+                            <span class="settings-hint">Hauptfarbe der gesamten App</span>
+                        </div>
+                        <div class="color-controls">
+                            <div class="color-presets">
+                                <button class="color-preset" data-color="#00ff88" title="Neon-Grün"></button>
+                                <button class="color-preset" data-color="#00aaff" title="Blau"></button>
+                                <button class="color-preset" data-color="#aa44ff" title="Lila"></button>
+                                <button class="color-preset" data-color="#ff6644" title="Orange"></button>
+                                <button class="color-preset" data-color="#ffcc00" title="Gold"></button>
+                                <button class="color-preset" data-color="#ff2266" title="Pink"></button>
+                            </div>
+                            <input type="color" id="s-accentColor" class="settings-color-input" value="#00ff88">
+                        </div>
+                    </div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Karten-Hintergrund</span>
+                            <span class="settings-hint">Hintergrundfarbe der Aufgabenkarten</span>
+                        </div>
+                        <select id="s-cardBackground" class="settings-select">
+                            <option value="jet">Jet (#0a0a0a)</option>
+                            <option value="dark">Dunkel (#111111)</option>
+                            <option value="deep">Tief (#050505)</option>
+                            <option value="charcoal">Anthrazit (#141414)</option>
+                        </select>
+                    </div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Karten-Abrundung</span>
+                            <span class="settings-hint">Radius der Kartenecken</span>
+                        </div>
+                        <div class="range-group">
+                            <input type="range" id="s-cardRadius" class="settings-range" min="0" max="28" step="2" value="20">
+                            <span class="range-val" id="s-cardRadius-val">20px</span>
+                        </div>
+                    </div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Rahmenbreite</span>
+                            <span class="settings-hint">Stärke des Kartenrahmens</span>
+                        </div>
+                        <div class="range-group">
+                            <input type="range" id="s-borderWidth" class="settings-range" min="0" max="4" step="1" value="2">
+                            <span class="range-val" id="s-borderWidth-val">2px</span>
+                        </div>
+                    </div>
+                    <div class="settings-group-title">Effekte</div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Animationsgeschwindigkeit</span>
+                            <span class="settings-hint">Geschwindigkeit aller Übergänge</span>
+                        </div>
+                        <select id="s-animationSpeed" class="settings-select">
+                            <option value="normal">Normal</option>
+                            <option value="slow">Langsam</option>
+                            <option value="fast">Schnell</option>
+                            <option value="off">Aus</option>
+                        </select>
+                    </div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Hintergrundmuster</span>
+                            <span class="settings-hint">Dezentes Muster hinter den Karten</span>
+                        </div>
+                        <select id="s-backgroundPattern" class="settings-select">
+                            <option value="none">Keins</option>
+                            <option value="dots">Punkte</option>
+                            <option value="grid">Raster</option>
+                        </select>
+                    </div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Karten-Leuchteffekt</span>
+                            <span class="settings-hint">Grüner Glow beim Drüberfahren</span>
+                        </div>
+                        <div class="toggle on" id="s-cardGlow"><div class="toggle-thumb"></div></div>
+                    </div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Hover-Heben</span>
+                            <span class="settings-hint">Karten heben sich beim Hover</span>
+                        </div>
+                        <div class="toggle on" id="s-hoverLift"><div class="toggle-thumb"></div></div>
+                    </div>
+                    <div class="settings-group-title">Form &amp; Rahmen</div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Rahmenstil</span>
+                            <span class="settings-hint">Stil des Kartenrahmens</span>
+                        </div>
+                        <select id="s-borderStyle" class="settings-select">
+                            <option value="solid">Durchgehend</option>
+                            <option value="dashed">Gestrichelt</option>
+                            <option value="double">Doppelt</option>
+                        </select>
+                    </div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Fortschritt-Box-Form</span>
+                            <span class="settings-hint">Form der Fortschrittsboxen</span>
+                        </div>
+                        <select id="s-progressBoxShape" class="settings-select">
+                            <option value="rounded">Abgerundet</option>
+                            <option value="square">Eckig</option>
+                            <option value="pill">Pille</option>
+                        </select>
+                    </div>
+                    <div class="settings-group-title">Spezialeffekte</div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Leuchtintensität</span>
+                            <span class="settings-hint">Stärke aller Glow-Effekte</span>
+                        </div>
+                        <select id="s-accentGlow" class="settings-select">
+                            <option value="normal">Normal</option>
+                            <option value="dim">Schwach</option>
+                            <option value="intense">Intensiv</option>
+                            <option value="off">Aus</option>
+                        </select>
+                    </div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Neon-Modus</span>
+                            <span class="settings-hint">Extra Neon-Glow auf Text &amp; Elementen</span>
+                        </div>
+                        <div class="toggle" id="s-neonGlow"><div class="toggle-thumb"></div></div>
+                    </div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>CRT-Scanlines</span>
+                            <span class="settings-hint">Retro-Bildröhren-Overlay</span>
+                        </div>
+                        <div class="toggle" id="s-scanlines"><div class="toggle-thumb"></div></div>
+                    </div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>3D-Tilt beim Hover</span>
+                            <span class="settings-hint">Karten kippen beim Hover leicht in 3D</span>
+                        </div>
+                        <div class="toggle" id="s-cardTiltOnHover"><div class="toggle-thumb"></div></div>
+                    </div>
+                </div>
+
+                <!-- ── Cards ── -->
+                <div class="settings-tab-pane" data-tab="cards">
+                    <div class="settings-group-title">Fortschritt</div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Fortschrittsanzeige</span>
+                            <span class="settings-hint">Wie Fortschritt dargestellt wird</span>
+                        </div>
+                        <select id="s-progressStyle" class="settings-select">
+                            <option value="boxes">Drei Boxen</option>
+                            <option value="bar">Balken</option>
+                        </select>
+                    </div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Fortschrittstext</span>
+                            <span class="settings-hint">Prozentanzeige unter dem Fortschritt</span>
+                        </div>
+                        <div class="toggle on" id="s-showProgressText"><div class="toggle-thumb"></div></div>
+                    </div>
+                    <div class="settings-group-title">Badges &amp; Buttons</div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Fälligkeits-Badge</span>
+                            <span class="settings-hint">Fälligkeitsdatum auf Karten</span>
+                        </div>
+                        <div class="toggle on" id="s-showDueBadge"><div class="toggle-thumb"></div></div>
+                    </div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Wiederholungs-Badge</span>
+                            <span class="settings-hint">Zeigt den Wiederholungstyp</span>
+                        </div>
+                        <div class="toggle on" id="s-showRepeatBadge"><div class="toggle-thumb"></div></div>
+                    </div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>+1 Tag Button</span>
+                            <span class="settings-hint">Aufgabe um einen Tag verschieben</span>
+                        </div>
+                        <div class="toggle on" id="s-showPostponeBtn"><div class="toggle-thumb"></div></div>
+                    </div>
+                    <div class="settings-group-title">Layout</div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Kartenabstand</span>
+                            <span class="settings-hint">Abstand zwischen den Karten</span>
+                        </div>
+                        <div class="range-group">
+                            <input type="range" id="s-cardSpacing" class="settings-range" min="8" max="24" step="2" value="16">
+                            <span class="range-val" id="s-cardSpacing-val">16px</span>
+                        </div>
+                    </div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Titelgröße</span>
+                            <span class="settings-hint">Schriftgröße der Aufgabentitel</span>
+                        </div>
+                        <div class="range-group">
+                            <input type="range" id="s-taskTitleSize" class="settings-range" min="16" max="26" step="1" value="20">
+                            <span class="range-val" id="s-taskTitleSize-val">20px</span>
+                        </div>
+                    </div>
+                    <div class="settings-group-title">Zusatzinfos</div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Erstelldatum anzeigen</span>
+                            <span class="settings-hint">Wann die Aufgabe erstellt wurde</span>
+                        </div>
+                        <div class="toggle" id="s-showCreatedDate"><div class="toggle-thumb"></div></div>
+                    </div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Überfällige Karten rot</span>
+                            <span class="settings-hint">Roter Schimmer für überfällige Aufgaben</span>
+                        </div>
+                        <div class="toggle" id="s-urgentRedTint"><div class="toggle-thumb"></div></div>
+                    </div>
+                    <div class="settings-group-title">Fortschritts-Symbol</div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Symbol in gefüllten Boxen</span>
+                            <span class="settings-hint">Zeichen in ausgefüllten Fortschrittsboxen</span>
+                        </div>
+                        <select id="s-filledBoxSymbol" class="settings-select">
+                            <option value="✓">✓  Haken</option>
+                            <option value="✦">✦  Stern</option>
+                            <option value="★">★  Stern (fest)</option>
+                            <option value="▓">▓  Block</option>
+                            <option value="⚡">⚡ Blitz</option>
+                            <option value="●">●  Punkt</option>
+                        </select>
+                    </div>
+                    <div class="settings-group-title">Wichtig-Animation</div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Pulsgeschwindigkeit (★ Wichtig)</span>
+                            <span class="settings-hint">Tempo des gestrichelten Rahmens</span>
+                        </div>
+                        <select id="s-importantPulseSpeed" class="settings-select">
+                            <option value="slow">Langsam (3.5s)</option>
+                            <option value="medium">Mittel (2s)</option>
+                            <option value="fast">Schnell (0.9s)</option>
+                        </select>
+                    </div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Überfällige Karten blinken</span>
+                            <span class="settings-hint">Roter Puls auf überfälligen Karten</span>
+                        </div>
+                        <div class="toggle" id="s-urgentBlink"><div class="toggle-thumb"></div></div>
+                    </div>
+                    <div class="settings-group-title">Eingangsanimation</div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Karten-Erscheinungseffekt</span>
+                            <span class="settings-hint">Wie Karten beim Laden erscheinen</span>
+                        </div>
+                        <select id="s-cardEntryAnim" class="settings-select">
+                            <option value="pop">Pop</option>
+                            <option value="fade">Einblenden</option>
+                            <option value="slide">Einschleichen</option>
+                            <option value="none">Kein Effekt</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- ── Behavior ── -->
+                <div class="settings-tab-pane" data-tab="behavior">
+                    <div class="settings-group-title">Aktionen</div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Löschen bestätigen</span>
+                            <span class="settings-hint">Sicherheitsabfrage vor dem Löschen</span>
+                        </div>
+                        <div class="toggle on" id="s-confirmDelete"><div class="toggle-thumb"></div></div>
+                    </div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Konfetti bei Abschluss</span>
+                            <span class="settings-hint">Feiereffekte beim Abschließen</span>
+                        </div>
+                        <div class="toggle on" id="s-showConfetti"><div class="toggle-thumb"></div></div>
+                    </div>
+                    <div class="settings-group-title">Sortierung &amp; Anzeige</div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Aufgabenzahl im Header</span>
+                            <span class="settings-hint">Gesamtzahl hinter dem Titel</span>
+                        </div>
+                        <div class="toggle" id="s-showTaskCount"><div class="toggle-thumb"></div></div>
+                    </div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Neueste zuerst</span>
+                            <span class="settings-hint">Neue Tasks oben einordnen</span>
+                        </div>
+                        <div class="toggle" id="s-autoSortNew"><div class="toggle-thumb"></div></div>
+                    </div>
+                    <div class="settings-group-title">Datum &amp; Wiederholung</div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Datumsformat</span>
+                            <span class="settings-hint">Wie Daten angezeigt werden</span>
+                        </div>
+                        <select id="s-dateFormat" class="settings-select">
+                            <option value="de">Deutsch (01.01.2025)</option>
+                            <option value="iso">ISO (2025-01-01)</option>
+                        </select>
+                    </div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Standard-Wiederholung</span>
+                            <span class="settings-hint">Vorausgewählter Wiederholungstyp</span>
+                        </div>
+                        <select id="s-defaultRepeatType" class="settings-select">
+                            <option value="none">Keine</option>
+                            <option value="daily">Täglich</option>
+                            <option value="every2days">Alle 2 Tage</option>
+                            <option value="every3days">Alle 3 Tage</option>
+                            <option value="weekly">Wöchentlich</option>
+                            <option value="monthly">Monatlich</option>
+                        </select>
+                    </div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Erster Wochentag</span>
+                            <span class="settings-hint">Referenztag für Kalenderlogik</span>
+                        </div>
+                        <select id="s-firstDayOfWeek" class="settings-select">
+                            <option value="monday">Montag</option>
+                            <option value="sunday">Sonntag</option>
+                        </select>
+                    </div>
+                    <div class="settings-group-title">Drag &amp; Drop</div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Drag zwischen Kategorien</span>
+                            <span class="settings-hint">Standardmäßig entsperrt</span>
+                        </div>
+                        <div class="toggle" id="s-crossDragDefault"><div class="toggle-thumb"></div></div>
+                    </div>
+                    <div class="settings-group-title">Sicherheit</div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Lösch-Verzögerung (Undo)</span>
+                            <span class="settings-hint">3s-Countdown mit Rückgängig-Option</span>
+                        </div>
+                        <div class="toggle" id="s-deletionDelay"><div class="toggle-thumb"></div></div>
+                    </div>
+                    <div class="settings-group-title">Feedback</div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Vibrations-Feedback</span>
+                            <span class="settings-hint">Haptisches Feedback beim Drag-Start</span>
+                        </div>
+                        <div class="toggle on" id="s-vibrationFeedback"><div class="toggle-thumb"></div></div>
+                    </div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Fälligkeits-Warnung</span>
+                            <span class="settings-hint">Tage im Voraus gelb hervorheben</span>
+                        </div>
+                        <div class="range-group">
+                            <input type="range" id="s-dueDateWarningDays" class="settings-range" min="1" max="14" step="1" value="3">
+                            <span class="range-val" id="s-dueDateWarningDays-val">3d</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ── Labs ── -->
+                <div class="settings-tab-pane" data-tab="labs">
+                    <div class="settings-group-title" class="txt-accent">🧪 Experimentelle Features</div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Fokus-Modus</span>
+                            <span class="settings-hint">Abgeschlossene Aufgaben stark abdunkeln</span>
+                        </div>
+                        <div class="toggle" id="s-focusMode"><div class="toggle-thumb"></div></div>
+                    </div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Kompakt-Modus</span>
+                            <span class="settings-hint">Kleinere, engere Karten</span>
+                        </div>
+                        <div class="toggle" id="s-compactMode"><div class="toggle-thumb"></div></div>
+                    </div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Umgekehrte Reihenfolge</span>
+                            <span class="settings-hint">Neueste Aufgaben innerhalb jeder Kategorie zuerst</span>
+                        </div>
+                        <div class="toggle" id="s-reverseSortOrder"><div class="toggle-thumb"></div></div>
+                    </div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Glassmorphismus</span>
+                            <span class="settings-hint">Halbtransparente Karten mit Unschärfe</span>
+                        </div>
+                        <div class="toggle" id="s-glassmorphism"><div class="toggle-thumb"></div></div>
+                    </div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Abschnitts-Zähler</span>
+                            <span class="settings-hint">Aufgabenanzahl pro Abschnitt einblenden</span>
+                        </div>
+                        <div class="toggle" id="s-sectionCountBadge"><div class="toggle-thumb"></div></div>
+                    </div>
+                    <div class="settings-group-title settings-group-title-muted">🤓 Nerdy Mode</div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Hex-Fortschritt</span>
+                            <span class="settings-hint">0x00 / 0x55 / 0xAA / 0xFF statt Prozent</span>
+                        </div>
+                        <div class="toggle" id="s-hexProgress"><div class="toggle-thumb"></div></div>
+                    </div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Matrix-Regen</span>
+                            <span class="settings-hint">Fallende Zeichen im Hintergrund</span>
+                        </div>
+                        <div class="toggle" id="s-matrixBg"><div class="toggle-thumb"></div></div>
+                    </div>
+                    <div class="settings-row">
+                        <div class="settings-label">
+                            <span>Letztes Update anzeigen</span>
+                            <span class="settings-hint">Timestamp der letzten Bearbeitung auf Karten</span>
+                        </div>
+                        <div class="toggle" id="s-showLastUpdated"><div class="toggle-thumb"></div></div>
+                    </div>
+                </div>
+                <!-- ── Account, passkeys and data ── -->
+                <div class="settings-tab-pane" data-tab="account">
+                    <div class="settings-group-title">Passkeys</div>
+                    <div id="credential-list" class="credential-list">
+                        <div class="credential-empty">Wird geladen&hellip;</div>
+                    </div>
+                    <div class="settings-row settings-row-stack">
+                        <div class="settings-label">
+                            <span>Weiteres Ger&auml;t anmelden</span>
+                            <span class="settings-hint">Erzeugt einen Token, der 15 Minuten g&uuml;ltig ist</span>
+                        </div>
+                        <button id="new-enrollment-btn" class="settings-action-btn">
+                            <span class="material-symbols-outlined ms-16">add_moderator</span>
+                            Token erzeugen
+                        </button>
+                    </div>
+                    <div id="enrollment-token-output" class="token-output" hidden></div>
+
+                    <div class="settings-group-title">Recovery-Codes</div>
+                    <div class="settings-row settings-row-stack">
+                        <div class="settings-label">
+                            <span id="recovery-status">&nbsp;</span>
+                            <span class="settings-hint">Jeder Code funktioniert genau einmal. Neu erzeugen macht alle alten ung&uuml;ltig.</span>
+                        </div>
+                        <button id="regen-recovery-btn" class="settings-action-btn">
+                            <span class="material-symbols-outlined ms-16">key</span>
+                            Neu erzeugen
+                        </button>
+                    </div>
+                    <div id="recovery-codes-output" class="token-output" hidden></div>
+
+                    <div class="settings-group-title">Sitzungen</div>
+                    <div class="settings-row settings-row-stack">
+                        <div class="settings-label">
+                            <span id="session-status">&nbsp;</span>
+                            <span class="settings-hint">Meldet alle anderen Ger&auml;te ab, dieses bleibt angemeldet</span>
+                        </div>
+                        <button id="revoke-sessions-btn" class="settings-action-btn">
+                            <span class="material-symbols-outlined ms-16">logout</span>
+                            Andere abmelden
+                        </button>
+                    </div>
+
+                    <div class="settings-group-title">Daten</div>
+                    <div class="settings-row settings-row-stack">
+                        <div class="settings-label">
+                            <span>Export</span>
+                            <span class="settings-hint">Alle Aufgaben und Einstellungen als JSON. Enth&auml;lt keine Zugangsdaten.</span>
+                        </div>
+                        <button id="export-btn" class="settings-action-btn">
+                            <span class="material-symbols-outlined ms-16">download</span>
+                            Herunterladen
+                        </button>
+                    </div>
+                    <div class="settings-row settings-row-stack">
+                        <div class="settings-label">
+                            <span>Import</span>
+                            <span class="settings-hint">Bestehende Aufgaben bleiben erhalten, gleiche IDs werden &uuml;bersprungen</span>
+                        </div>
+                        <button id="import-btn" class="settings-action-btn">
+                            <span class="material-symbols-outlined ms-16">upload</span>
+                            Datei w&auml;hlen
+                        </button>
+                    </div>
+                    <input type="file" id="import-file" accept="application/json,.json" hidden>
+                    <div id="import-output" class="token-output" hidden></div>
+
+                    <div class="settings-group-title">Anmelde-Protokoll</div>
+                    <div id="auth-log" class="auth-log">
+                        <div class="credential-empty">Wird geladen&hellip;</div>
+                    </div>
+                </div>
+            </div>
+            <div class="settings-footer">
+                <button id="settings-reset-btn" class="settings-reset-btn">
+                    <span class="material-symbols-outlined ms-16">restart_alt</span>
+                    Zur&uuml;cksetzen
+                </button>
+            </div>
+        </div>
+    </div>
+    <!-- Completion Modal – fixed overlay, lives outside the scroll container -->
+    <div id="completion-modal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-icon">
+                <span class="material-symbols-outlined">task_alt</span>
+            </div>
+            <h2>Aufgabe abgeschlossen!</h2>
+            <p>Was möchtest du tun?</p>
+            <div class="modal-buttons">
+                <button id="modal-done-btn" class="modal-done-btn">
+                    <span class="material-symbols-outlined">celebration</span>
+                    Fertig!
+                </button>
+                <button id="modal-delete-btn" class="modal-delete-btn">
+                    <span class="material-symbols-outlined">delete</span>
+                    Löschen
+                </button>
+            </div>
+        </div>
+    </div>
+    <!-- Matrix rain canvas -->
+    <canvas id="matrix-canvas"></canvas>
+
+    <script src="/vendor/confetti/confetti.browser.min.js"></script>
+    <script type="module" src="/js/main.js"></script>
+</body>
+</html>

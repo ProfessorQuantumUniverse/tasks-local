@@ -1,0 +1,300 @@
+/*
+ * Styles for everything the self-hosted build adds on top of the original
+ * sheet: the passkey screens, the account tab, and the utility classes that
+ * replaced inline style attributes so the CSP can stay free of 'unsafe-inline'.
+ */
+
+/* ── Utility classes replacing inline styles ─────────────────────────── */
+.ms-16 { font-size: 16px; }
+.ms-18 { font-size: 18px; }
+.ms-20 { font-size: 20px; }
+.ms-22 { font-size: 22px; }
+.ms-15 { font-size: 15px; }
+.ms-inline { vertical-align: -3px; }
+.txt-accent { color: var(--accent); }
+.settings-group-title-muted { color: #888; margin-top: 20px; }
+
+/* ── Authentication screens ──────────────────────────────────────────── */
+.auth-pane { display: none; }
+.auth-pane.active { display: block; }
+
+.auth-lead {
+    color: #999;
+    font-size: 14px;
+    line-height: 1.55;
+    margin: 0 0 22px;
+    max-width: 380px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.auth-primary-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    width: 100%;
+    max-width: 320px;
+    padding: 15px 26px;
+    border: 2px solid var(--accent);
+    border-radius: 14px;
+    background: transparent;
+    color: var(--accent);
+    font-family: var(--font-ui);
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.2s ease, transform 0.15s ease, opacity 0.2s ease;
+}
+.auth-primary-btn:hover:not(:disabled) {
+    background: rgba(var(--accent-rgb), 0.12);
+    transform: translateY(-2px);
+}
+.auth-primary-btn:active:not(:disabled) { transform: translateY(0); }
+.auth-primary-btn:disabled { opacity: 0.5; cursor: progress; }
+
+.auth-label {
+    display: block;
+    text-align: left;
+    max-width: 320px;
+    margin: 0 auto 6px;
+    color: #777;
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.auth-input {
+    display: block;
+    width: 100%;
+    max-width: 320px;
+    margin: 0 auto 18px;
+    padding: 13px 15px;
+    border: 2px solid #222;
+    border-radius: 12px;
+    background: #0a0a0a;
+    color: #eee;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 14px;
+    letter-spacing: 0.02em;
+}
+.auth-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.12);
+}
+
+.auth-links {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 18px;
+    margin-top: 20px;
+}
+.auth-link {
+    border: none;
+    background: none;
+    color: #777;
+    font-family: var(--font-ui);
+    font-size: 13px;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    cursor: pointer;
+    padding: 4px;
+}
+.auth-link:hover { color: var(--accent); }
+
+.auth-message {
+    min-height: 20px;
+    margin-top: 22px;
+    font-size: 13.5px;
+    line-height: 1.5;
+    max-width: 380px;
+    margin-left: auto;
+    margin-right: auto;
+}
+.auth-message.error { color: #ff5555; }
+.auth-message.success { color: var(--accent); }
+.auth-message.info { color: #999; }
+
+/* Recovery codes shown once after first setup. */
+.auth-codes {
+    margin: 18px auto 0;
+    max-width: 340px;
+    padding: 16px;
+    border: 2px dashed var(--accent);
+    border-radius: 12px;
+    background: rgba(var(--accent-rgb), 0.05);
+    text-align: left;
+}
+.auth-codes h4 {
+    margin: 0 0 10px;
+    color: var(--accent);
+    font-size: 13px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+.auth-codes ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    columns: 2;
+    column-gap: 16px;
+}
+.auth-codes li {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 13px;
+    color: #ddd;
+    padding: 2px 0;
+    /* Keep the code intact when the user selects the whole block to copy. */
+    user-select: all;
+}
+.auth-codes p {
+    margin: 12px 0 0;
+    font-size: 12px;
+    color: #888;
+    line-height: 1.5;
+}
+
+/* ── Footer / sync indicator ─────────────────────────────────────────── */
+.footer-note {
+    color: #555;
+    font-size: 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.sync-indicator { color: #555; font-size: 12px; }
+.sync-indicator.offline { color: #ff8844; }
+.sync-indicator.error { color: #ff5555; }
+
+/* Banner shown while the server cannot be reached. */
+.connection-banner {
+    position: fixed;
+    left: 50%;
+    top: 12px;
+    transform: translateX(-50%);
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 16px;
+    border: 1px solid #ff8844;
+    border-radius: 999px;
+    background: #1a0f08;
+    color: #ffb37a;
+    font-size: 13px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+/* ── Account tab ─────────────────────────────────────────────────────── */
+.settings-row-stack { align-items: flex-start; gap: 14px; }
+
+.settings-action-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 9px 14px;
+    border: 1px solid #333;
+    border-radius: 10px;
+    background: transparent;
+    color: #bbb;
+    font-family: var(--font-ui);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: border-color 0.2s ease, color 0.2s ease;
+}
+.settings-action-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.settings-action-btn:disabled { opacity: 0.5; cursor: progress; }
+.settings-action-btn.danger:hover { border-color: #ff4444; color: #ff4444; }
+
+.credential-list { margin-bottom: 18px; }
+.credential-empty { color: #666; font-size: 13px; padding: 10px 0; }
+
+.credential-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid #1c1c1c;
+}
+.credential-item:last-child { border-bottom: none; }
+.credential-meta { min-width: 0; }
+.credential-name {
+    display: block;
+    color: #ddd;
+    font-size: 14px;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.credential-detail { display: block; color: #666; font-size: 12px; margin-top: 3px; }
+
+.token-output {
+    margin: 0 0 18px;
+    padding: 14px;
+    border: 1px solid #2a2a2a;
+    border-radius: 10px;
+    background: #0a0a0a;
+}
+.token-output code,
+.token-output li {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 13px;
+    color: var(--accent);
+    word-break: break-all;
+    user-select: all;
+}
+.token-output ul { margin: 0; padding: 0; list-style: none; columns: 2; column-gap: 16px; }
+.token-output li { padding: 2px 0; color: #ddd; }
+.token-output p { margin: 10px 0 0; color: #888; font-size: 12px; line-height: 1.5; }
+.token-output p:first-child { margin-top: 0; }
+.token-output.error { border-color: #552222; }
+.token-output.error p { color: #ff7777; }
+
+.auth-log { max-height: 220px; overflow-y: auto; }
+.auth-log-entry {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 7px 0;
+    border-bottom: 1px solid #161616;
+    font-size: 12px;
+}
+.auth-log-entry:last-child { border-bottom: none; }
+.auth-log-when { color: #666; white-space: nowrap; }
+.auth-log-what { color: #aaa; text-align: right; }
+.auth-log-entry.failed .auth-log-what { color: #ff6666; }
+
+@media (max-width: 480px) {
+    .auth-codes ul,
+    .token-output ul { columns: 1; }
+    .settings-row-stack { flex-direction: column; align-items: stretch; }
+    .settings-action-btn { justify-content: center; }
+}
+
+/* Hex progress readout switches to a monospace face. */
+.progress-text.mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+
+/*
+ * The original sheet styles #login-btn by id, which outranks .auth-primary-btn
+ * and made the label wrap. Match that specificity to settle the geometry, and
+ * take the colour from the accent variable so the button follows the theme.
+ */
+#login-btn {
+    padding: 16px 30px;
+    font-size: 16px;
+    white-space: nowrap;
+    background: var(--accent);
+    color: #000;
+    border: 2px solid var(--accent);
+    box-shadow: 0 8px 24px rgba(var(--accent-rgb), 0.3);
+}
+#login-btn:hover:not(:disabled) {
+    background: var(--accent);
+    box-shadow: 0 12px 32px rgba(var(--accent-rgb), 0.4);
+}

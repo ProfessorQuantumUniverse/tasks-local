@@ -1,0 +1,11 @@
+# Normalise line endings for source, so a checkout on Windows and one on Linux
+# produce identical files.
+* text=auto eol=lf
+
+# Vendored assets are hashed in scripts/vendor-lock.json. Git must not rewrite
+# a single byte of them, or the integrity check fails on the next checkout.
+web/vendor/** binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary

@@ -1,0 +1,13 @@
+# Local debugging only. Copy to docker-compose.override.yml to publish the
+# port on the loopback interface of the Docker host, so you can curl the API
+# from inside the LXC without going through the proxy.
+#
+#   curl -i http://127.0.0.1:8080/healthz
+#
+# Note: passkeys will NOT work over this address. They are bound to
+# APP_ORIGIN, and browsers require a secure context. Use it for health checks
+# and API debugging, not for signing in.
+services:
+  app:
+    ports:
+      - "127.0.0.1:8080:8080"
