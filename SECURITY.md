@@ -193,20 +193,15 @@ Parametern.
 | Recovery-Code einlösen | 5 / 15 Minuten |
 
 Die Quell-IP stammt aus `X-Forwarded-For`, aber nur von den Absendern, die
-`TRUST_PROXY` nennt. Weil Nginx Proxy Manager in einem eigenen LXC läuft und
-der Port dafür im LAN veröffentlicht ist, gehört dort **die IP des NPM-LXC**
-hinein und nichts Breiteres:
+`TRUST_PROXY` nennt — dort gehört **die IP des Reverse Proxy** hinein und
+nichts Breiteres. Ein Bereich wie `uniquelocal` wäre wirkungslos: Der Port ist
+im LAN veröffentlicht, jeder Host dort liegt in einem privaten Bereich und
+könnte den Header selbst setzen. Auf `true` könnte es jeder.
 
-```
-TRUST_PROXY=10.0.0.10
-```
-
-Ein Bereich wie `uniquelocal` wäre hier wirkungslos — jeder Host im LAN liegt
-in einem privaten Bereich und könnte den Header selbst setzen. Auf `true`
-gesetzt könnte es jeder, auch von außen. Der Standard ist deshalb `false`:
-Dann zählt ausschließlich die tatsächliche Absenderadresse. Das ist sicher,
-kostet aber die Unterscheidung zwischen deinen Geräten — alle teilen sich ein
-Budget, und im Protokoll steht überall die Proxy-Adresse.
+Der Standard ist deshalb `false` — dann zählt ausschließlich die tatsächliche
+Absenderadresse. Sicher, kostet aber die Unterscheidung zwischen deinen
+Geräten: Alle teilen sich ein Budget, und im Protokoll steht überall die
+Proxy-Adresse.
 
 ---
 
@@ -221,7 +216,7 @@ Budget, und im Protokoll steht überall die Proxy-Adresse.
 | `no-new-privileges` | kein setuid-Aufstieg |
 | `tmpfs /tmp` mit `noexec,nosuid,nodev` | kein Ausführen aus dem einzigen Schreibpfad |
 | `pids: 256`, 512 MB RAM | begrenzt, was ein Fehler anrichten kann |
-| Port nur auf dem Docker-LXC | siehe unten |
+| kein root-Zugriff auf das Volume | Datenbank gehört uid 1000, Modus 0600 |
 
 Nachprüfbar:
 
@@ -233,34 +228,16 @@ docker ps --filter name=tasks --format '{{.Ports}}'   # 0.0.0.0:8080->8080/tcp
 
 ### Der veröffentlichte Port
 
-NPM läuft in einem anderen LXC als Docker, kann also kein Docker-Netz
-mitbenutzen. Der Port liegt damit im LAN statt nur in einem Bridge-Netz — der
-Reverse Proxy ist nicht mehr allein durch die Topologie der einzige Weg
-hinein.
+Der Port liegt im LAN, nicht nur in einem Docker-Netz — der Reverse Proxy ist
+also nicht mehr allein durch die Topologie der einzige Weg hinein. Was ein
+Gerät im LAN damit anfangen kann, ist trotzdem wenig: **Anmelden nicht**
+(Passkeys hängen an `APP_ORIGIN` und brauchen einen sicheren Kontext),
+**Sitzung übernehmen nicht** (`__Host-`-Cookies gehen über http nie raus),
+**schreiben nicht** (Origin-Prüfung). Übrig bleiben Anmeldeseite, statische
+Dateien und `/healthz`.
 
-Was ein Gerät im LAN damit anfangen kann, ist trotzdem wenig:
-
-- **Anmelden nicht.** Passkeys sind an `APP_ORIGIN` gebunden und brauchen
-  einen sicheren Kontext. Über `http://<lxc-ip>:8080` gibt der Browser keine
-  Signatur heraus.
-- **Sitzung übernehmen nicht.** Die Cookies tragen `__Host-`, sind `Secure`
-  und werden über http nie gesendet.
-- **Schreiben nicht.** Die Origin-Prüfung lehnt jede Anfrage ab, deren
-  `Origin` nicht exakt `APP_ORIGIN` ist.
-
-Übrig bleiben die Anmeldeseite, die statischen Dateien und `/healthz`.
-Zugemacht gehört der Port trotzdem, auf dem Docker-LXC in der Kette
-`DOCKER-USER` — eine gewöhnliche `ufw`-Regel greift bei veröffentlichten
-Docker-Ports nicht:
-
-```bash
-iptables -I DOCKER-USER -p tcp --dport 8080 -s <npm-lxc-ip> -j ACCEPT
-iptables -A DOCKER-USER -p tcp --dport 8080 -j DROP
-```
-
-Liegen NPM und Docker später einmal auf demselben Host, ist ein gemeinsames
-Docker-Netz ohne veröffentlichten Port die bessere Lösung; die Vorlage dafür
-steht in `docker-compose.override.yml.example`.
+Zugemacht gehört er trotzdem — wie, steht in
+[docs/reverse-proxy.md](docs/reverse-proxy.md).
 
 > Im unprivilegierten Proxmox-LXC greifen AppArmor- und seccomp-Profile je
 > nach Konfiguration nur eingeschränkt. Alle oben genannten Maßnahmen

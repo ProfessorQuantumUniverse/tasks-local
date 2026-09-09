@@ -108,7 +108,7 @@ Passkeys sind kryptografisch an `APP_ORIGIN` gebunden. Nach einem Wechsel
 funktioniert kein registrierter Passkey mehr — er wird für die neue Domain
 nicht einmal angeboten.
 
-1. `APP_ORIGIN` im Stack auf die neue Adresse setzen, Proxy-Host in NPM
+1. `APP_ORIGIN` im Stack auf die neue Adresse setzen, den Reverse Proxy
    anpassen, neu deployen.
 2. Enrollment-Token erzeugen (Weg 3) und einen Passkey für die neue Domain
    registrieren.

@@ -10,14 +10,12 @@ services:
     # PID 1 that reaps zombies and forwards signals.
     init: true
 
-    # Nginx Proxy Manager runs in a different LXC, so it cannot reach a Docker
-    # network on this host: the port has to be published on the Docker LXC and
-    # NPM forwards to <docker-lxc-ip>:${HOST_PORT}. See
-    # docs/nginx-proxy-manager.md.
+    # The reverse proxy usually lives on another host, so it cannot reach a
+    # Docker network here: the port is published and the proxy forwards to
+    # <docker-host-ip>:${HOST_PORT}. See docs/reverse-proxy.md.
     #
-    # BIND_ADDR pins the listener to one interface of the Docker LXC. Leave it
-    # at 0.0.0.0 unless the LXC has several interfaces and you know which one
-    # NPM comes in on.
+    # BIND_ADDR pins the listener to one interface. Leave it at 0.0.0.0 unless
+    # the host has several and you know which one the proxy comes in on.
     ports:
       - "${BIND_ADDR:-0.0.0.0}:${HOST_PORT:-8080}:8080"
 
@@ -37,10 +35,10 @@ services:
       # Local time zone, so "today" and due dates match your calendar.
       TZ: ${TZ:-Europe/Berlin}
       # Which sources may set X-Forwarded-For. The port is published on the
-      # LAN now, so "private ranges" is no longer a meaningful restriction --
-      # any host on the LAN is in one. Default to trusting nobody, and set
-      # this to the Nginx Proxy Manager LXC's IP to get real client addresses
-      # back into the rate limiter and the audit log.
+      # LAN, so "private ranges" is not a meaningful restriction -- every host
+      # on the LAN is in one. Default to trusting nobody; set this to the
+      # reverse proxy's IP to get real client addresses back into the rate
+      # limiter and the audit log.
       TRUST_PROXY: ${TRUST_PROXY:-false}
 
     volumes:

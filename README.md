@@ -1,20 +1,15 @@
 # Tasks — selbst gehostet
 
-Der To-Do-Tracker, jetzt ohne Firebase: eigener Node-Server, SQLite-Datei,
-Anmeldung ausschließlich per Passkey. Läuft als ein einziger Container hinter
-deinem Reverse Proxy.
+Der To-Do-Tracker ohne Firebase: eigener Node-Server, SQLite-Datei, Anmeldung
+ausschließlich per Passkey. Ein Container, kein Build-Schritt im Frontend.
 
 ```
-Browser ──► Cloudflare Tunnel ──► Nginx Proxy Manager ──► Docker-LXC:8080
-                                       (eigener LXC)         └── tasks (Container)
-                                                                  └── /data/tasks.db
+Browser ──► dein Reverse Proxy (TLS) ──► tasks:8080 ──► /data/tasks.db
 ```
 
-Nginx Proxy Manager läuft in einem eigenen LXC, Docker mit Portainer in einem
-zweiten. Da sich beide kein Docker-Netz teilen, veröffentlicht der Stack
-seinen Port auf dem Docker-LXC und NPM leitet an dessen IP weiter. Wie der
-Port dabei auf die Proxy-Adresse eingegrenzt wird, steht in
-[docs/nginx-proxy-manager.md](docs/nginx-proxy-manager.md).
+Der Container spricht nur HTTP und veröffentlicht Port 8080 auf dem Host. Was
+davor steht, ist deine Sache — die drei Punkte, die dabei wirklich zählen,
+stehen in [docs/reverse-proxy.md](docs/reverse-proxy.md).
 
 ---
 
@@ -22,49 +17,43 @@ Port dabei auf die Proxy-Adresse eingegrenzt wird, steht in
 
 | | |
 |---|---|
-| **Anmeldung** | Passkey (WebAuthn), Face ID / Fingerabdruck / Hardware-Key. Kein Passwort. |
-| **Wiederherstellung** | 10 einmalige Recovery-Codes + Enrollment-Token über die Container-Shell |
-| **Sitzung** | 30 Tage, rollierend, Token rotiert alle 24 h, jederzeit serverseitig widerrufbar |
+| **Anmeldung** | Passkey (WebAuthn): Face ID, Fingerabdruck, Hardware-Key. Kein Passwort. |
+| **Wiederherstellung** | 10 einmalige Recovery-Codes, dazu Enrollment-Token über die Container-Shell |
+| **Sitzung** | 30 Tage, Token rotiert alle 24 h, jederzeit serverseitig widerrufbar |
 | **Speicher** | SQLite, eine Datei in einem Docker-Volume |
-| **Externe Aufrufe** | keine — Schriften und Confetti liegen im Image |
-| **Datenexport** | JSON-Export/Import direkt in der App |
-
-Alle 48 Einstellungen, Drag & Drop, Wiederholungen, Matrix-Regen und Konfetti
-sind unverändert erhalten.
+| **Aufgaben** | Fälligkeiten, Wiederholungen, Fortschritt, Drag & Drop, eigene Sortierung |
+| **Aussehen** | 48 Einstellungen, 10 Schriften, alles lokal ausgeliefert |
+| **Installierbar** | PWA — auf Android und iOS als App auf den Startbildschirm |
 
 ---
 
-## Voraussetzungen
+## Einrichtung
 
-1. **Eine Domain mit HTTPS.** Passkeys sind kryptografisch an den Hostnamen
-   gebunden und funktionieren nur in einem *secure context*. Über
-   `http://192.168.x.x` lässt sich prinzipiell keine Anmeldung durchführen.
-2. **Ein Reverse Proxy**, der TLS terminiert — hier Nginx Proxy Manager.
-3. **Docker** mit Compose-Unterstützung.
+Vorausgesetzt: eine Domain, die per HTTPS auf den Container zeigt. Passkeys
+sind kryptografisch an genau diese Adresse gebunden, also **vorher festlegen**
+— ein späterer Wechsel entwertet jeden registrierten Passkey.
 
-> **Wichtig:** `APP_ORIGIN` legt fest, für welche Adresse Passkeys gelten.
-> Änderst du die Domain später, werden alle registrierten Passkeys ungültig
-> und du musst dich per Recovery-Code neu einrichten. Überleg dir den Namen
-> also einmal richtig.
-
----
-
-## Einrichtung mit Portainer
-
-### 1. IP-Adressen notieren
-
-Zwei Adressen werden gleich gebraucht. Jeweils im betreffenden LXC:
+### Variante A — Docker Compose
 
 ```bash
-hostname -I
+git clone <repo-url> tasks && cd tasks
 ```
 
-- die des **Docker-LXC** — sie kommt in NPM als *Forward Hostname*,
-- die des **NPM-LXC** — sie kommt in den Stack als `TRUST_PROXY`.
+```bash
+cp .env.example .env && ${EDITOR:-nano} .env
+```
 
-### 2. Stack anlegen
+Mindestens `APP_ORIGIN` setzen, idealerweise auch `TRUST_PROXY`. Dann:
 
-In Portainer: **Stacks → Add stack → Repository**
+```bash
+docker compose up -d --build
+```
+
+Der erste Build dauert ein paar Minuten, weil die Schriften geprüft werden.
+
+### Variante B — Portainer
+
+**Stacks → Add stack → Repository**
 
 | Feld | Wert |
 |---|---|
@@ -72,7 +61,7 @@ In Portainer: **Stacks → Add stack → Repository**
 | Repository reference | `refs/heads/main` |
 | Compose path | `docker-compose.yml` |
 
-Unter **Environment variables** eintragen:
+Unter **Environment variables**:
 
 ```
 APP_ORIGIN=https://tasks.deinedomain.de
@@ -80,63 +69,40 @@ TRUST_PROXY=10.0.0.10
 TZ=Europe/Berlin
 ```
 
-`TRUST_PROXY` ist die IP des NPM-LXC. Ohne sie läuft alles weiter, aber die
-App sieht jede Anfrage als vom Proxy kommend: Das Rate-Limit gilt dann für
-alle Geräte gemeinsam und im Sicherheitsprotokoll steht überall die
-Proxy-Adresse. Alle weiteren Variablen sind optional, siehe
-[`.env.example`](.env.example).
+`TRUST_PROXY` ist die IP deines Reverse Proxy. Alles Weitere ist optional und
+in [`.env.example`](.env.example) erklärt. Dann **Deploy the stack**.
 
-Dann **Deploy the stack**. Portainer klont das Repo und baut das Image; der
-erste Build dauert ein paar Minuten, weil die Schriften geladen werden.
+### Ersten Passkey registrieren
 
-### 3. Proxy-Host in Nginx Proxy Manager
-
-Siehe [docs/nginx-proxy-manager.md](docs/nginx-proxy-manager.md) — dort steht
-Feld für Feld, was einzutragen ist.
-
-### 4. Ersten Passkey registrieren
-
-Beim ersten Start schreibt der Container einen einmaligen Enrollment-Token ins
-Log:
-
-```
-========================================================================
-  SETUP REQUIRED - no passkey is registered yet.
-  Open https://tasks.deinedomain.de and enter this one-time enrollment token:
-
-      kcjczR3PEgcpP9ju44T-iekdzJ7FhnHp3739Jksv_TE
-
-  Valid until 2026-09-09T10:15:00.000Z.
-========================================================================
-```
-
-In Portainer unter **Containers → tasks → Logs** ablesen. Falls er abgelaufen
-ist, einen neuen erzeugen:
+Beim ersten Start steht ein einmaliger Enrollment-Token im Container-Log (in
+Portainer unter **Containers → tasks → Logs**, gekennzeichnet mit `SETUP
+REQUIRED`). Domain öffnen, Token einfügen, Passkey anlegen. Ist er abgelaufen:
 
 ```bash
 docker compose exec app node src/cli.js enroll
 ```
 
-Dann die Domain im Browser öffnen, den Token einfügen, Gerätenamen vergeben
-und den Passkey anlegen.
+> **Danach werden dir einmalig 10 Recovery-Codes angezeigt. Speichere sie
+> sofort offline.** Sie erscheinen nie wieder und sind ohne Shell-Zugriff dein
+> einziger Weg zurück, wenn du alle Geräte verlierst.
 
-**Danach werden dir einmalig 10 Recovery-Codes angezeigt. Speichere sie sofort
-offline** — sie erscheinen nie wieder und sind ohne Shell-Zugriff dein einziger
-Weg zurück, wenn du alle Geräte verlierst.
+Registriere direkt ein zweites Gerät: **Einstellungen → Konto → Token
+erzeugen**, auf dem anderen Gerät *Neues Gerät anmelden*. Das ist der
+bequemste Schutz gegen ein Aussperren.
 
-### 5. Zweites Gerät
+### Als App installieren
 
-In der App: **Einstellungen → Konto → Token erzeugen**. Auf dem neuen Gerät die
-Domain öffnen, *Neues Gerät anmelden* wählen und den Token einfügen.
+Die Seite ist eine PWA: In Chrome auf Android erscheint *App installieren* im
+Menü, auf iOS *Teilen → Zum Home-Bildschirm*. Sie startet dann ohne
+Browserleiste, der Passkey-Dialog funktioniert genauso.
 
-Registriere von Anfang an mindestens zwei Geräte. Das ist der bequemste
-Schutz gegen ein Aussperren.
+Bewusst **ohne Service Worker** — die App ist vollständig serverabhängig, ein
+Offline-Cache würde nur veraltete Module gegen frisches HTML ausspielen. Die
+CSP verbietet Worker deshalb ganz.
 
 ---
 
 ## Betrieb
-
-### Verwaltung über die Container-Shell
 
 ```bash
 docker compose exec app node src/cli.js <befehl>
@@ -153,97 +119,62 @@ docker compose exec app node src/cli.js <befehl>
 | `revoke-enrollments` | Offene Enrollment-Token entwerten |
 | `prune` | Abgelaufene Sitzungen und Challenges löschen |
 
-### Aktualisieren
+**Aktualisieren:** `docker compose up -d --build`, in Portainer *Pull and
+redeploy*. Datenbank und Passkeys liegen im Volume und bleiben erhalten.
 
-In Portainer beim Stack **Pull and redeploy** — Portainer holt den neuen Stand
-und baut das Image neu. Datenbank und Passkeys liegen im Volume und bleiben
-erhalten.
-
-### Sichern
-
-Die gesamte Datenbank liegt in einer Datei im Volume `tasks-data`. Ein
-konsistenter Snapshot:
+**Sichern:** Am einfachsten der ganze Host per Backup. Nur die Datenbank:
 
 ```bash
-docker compose exec app node -e "const D=require('better-sqlite3');new D('/data/tasks.db').backup('/data/backup.db').then(()=>console.log('ok'))"
+docker compose exec app node -e "new (require('better-sqlite3'))('/data/tasks.db').backup('/data/backup.db').then(()=>console.log('ok'))"
+```
+
+```bash
 docker compose cp app:/data/backup.db ./tasks-backup.db
 ```
 
-Für die reinen Aufgaben reicht **Einstellungen → Konto → Export**. Dieser
-Export enthält bewusst **keine** Passkeys und keine Recovery-Codes — er ist
-zum Weitergeben und Archivieren gedacht, nicht als vollständiges Backup.
-
-Am einfachsten sicherst du ohnehin den ganzen LXC über dein Proxmox-Backup.
+**Ausgesperrt?** [docs/recovery.md](docs/recovery.md) — drei Wege zurück, vom
+zweiten Gerät bis zur Container-Shell.
 
 ---
 
-## Wenn du ausgesperrt bist
-
-1. **Ein anderes Gerät funktioniert noch** → dort anmelden, unter
-   *Einstellungen → Konto* einen neuen Enrollment-Token erzeugen.
-2. **Kein Gerät mehr, aber Recovery-Codes vorhanden** → auf der Anmeldeseite
-   *Passkey verloren?* wählen und einen Code einlösen. Damit werden alle
-   Sitzungen beendet und du kannst sofort einen neuen Passkey registrieren.
-3. **Weder Gerät noch Code** → Shell-Zugriff auf den LXC:
-   `docker compose exec app node src/cli.js enroll`
-
-Mehr dazu in [docs/recovery.md](docs/recovery.md).
-
----
-
-## Lokale Entwicklung
+## Entwicklung
 
 ```bash
 npm --prefix server install
-node scripts/fetch-assets.mjs        # Schriften nach web/vendor/ laden
+```
+
+```bash
 cd server && APP_ORIGIN=http://localhost:8080 DATA_DIR=../data node src/server.js
 ```
 
 `http://localhost:8080` gilt als secure context, Passkeys funktionieren dort
-also auch ohne TLS. Für jede andere Adresse verweigert der Server den Start
+also ohne TLS. Für jede andere http-Adresse verweigert der Server den Start
 mit einer Erklärung, statt eine Anmeldeseite auszuliefern, die nie
 funktionieren kann.
-
-### Tests
 
 ```bash
 npm --prefix server test
 ```
 
-Startet einen Server auf einem freien Port mit Wegwerf-Datenbank und fährt
-54 Prüfungen durch: Registrierung, Anmeldung, Wiederholungslogik,
-Export/Import, Origin-Prüfung, verbrauchte Recovery-Codes, wiederverwendete
-Assertions und Klon-Erkennung. Die WebAuthn-Seite übernimmt dabei ein in
-`server/test/e2e.mjs` implementierter Software-Authenticator, es wird also
-wirklich signiert und verifiziert.
+67 Prüfungen gegen einen Server auf einem freien Port mit Wegwerf-Datenbank:
+Registrierung, Anmeldung, Wiederholungslogik, Export/Import, Origin-Prüfung,
+verbrauchte Recovery-Codes, wiederverwendete Assertions, Klon-Erkennung. Die
+WebAuthn-Seite übernimmt ein Software-Authenticator in `server/test/e2e.mjs`,
+es wird also wirklich signiert und verifiziert.
 
 ### Aufbau
 
 ```
-server/src/
-  server.js        Bootstrap, Sicherheits-Header, Routen-Registrierung
-  config.js        Konfiguration aus ENV, validiert beim Start
-  db.js            SQLite-Schema
-  security.js      CSP, Same-Origin-Prüfung
-  static.js        Statischer Handler mit fester Allowlist
-  settings.js      Einstellungen, gegen die Defaults gefiltert
-  cli.js           Konsolenwerkzeug
-  auth/            Sitzungen, WebAuthn, Enrollment, Krypto-Helfer
-  routes/          auth, tasks, settings, data
-web/
-  index.html       Markup
-  css/             app.css (übernommen), auth.css (neu)
-  js/              ES-Module, kein Build-Schritt
-  vendor/          Schriften und Confetti (nicht im Repo, siehe unten)
-shared/
-  settings-defaults.json   einzige Quelle für die 48 Einstellungen
+server/src/    server.js · config.js · db.js · security.js · static.js
+               settings.js · cli.js · auth/ · routes/
+web/           index.html · css/ · js/ (ES-Module) · vendor/ · icons/
+shared/        settings-defaults.json — einzige Quelle für die Einstellungen
+scripts/       fetch-assets.mjs (Schriften) · make-icons.mjs (PWA-Icons)
 ```
 
-`web/vendor/` ist absichtlich nicht eingecheckt. `scripts/fetch-assets.mjs`
-lädt die Dateien und prüft jede gegen `scripts/vendor-lock.json`; weicht ein
-Hash ab, bricht der Build ab. Beim Docker-Build passiert das automatisch.
-
-Neue Versionen holen und den Lock erneuern:
+Schriften und Confetti liegen im Repo und werden bei jedem Build gegen
+`scripts/vendor-lock.json` geprüft — weicht ein Byte ab oder liegt eine nicht
+gelistete Datei in `web/vendor/`, bricht der Build ab. Neue Versionen holen:
 
 ```bash
 node scripts/fetch-assets.mjs --update
@@ -253,11 +184,9 @@ node scripts/fetch-assets.mjs --update
 
 ## Sicherheit
 
-Threat Model, umgesetzte Maßnahmen und bewusste Grenzen stehen in
-[SECURITY.md](SECURITY.md).
+Threat Model, umgesetzte Maßnahmen und bewusste Grenzen: [SECURITY.md](SECURITY.md).
 
 ## Lizenz
 
-MIT. Die geladenen Schriften unterliegen ihren eigenen Lizenzen: die
-Google-Fonts-Familien der SIL Open Font License, Nasalization der Lizenz von
-Typodermic Fonts.
+MIT. Die Schriften unterliegen ihren eigenen Lizenzen: die Google-Fonts-Familien
+der SIL Open Font License, Nasalization der Lizenz von Typodermic Fonts.

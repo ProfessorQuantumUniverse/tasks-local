@@ -9,3 +9,4 @@ web/vendor/** binary
 *.woff2 binary
 *.ttf binary
 *.otf binary
+*.png binary
