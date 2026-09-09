@@ -133,19 +133,54 @@ export function destroyAllSessions() {
 }
 
 /**
+ * Rate limit the rejection log.
+ *
+ * The audit trail is capped at 5000 rows, so an unauthenticated caller that got
+ * one entry per rejected request could push every genuine security event out of
+ * it within minutes. One entry per source per minute keeps the signal ("a token
+ * this server does not accept was presented") without the eviction.
+ */
+const REJECT_LOG_WINDOW_MS = 60 * 1000;
+const REJECT_LOG_MAX_KEYS = 1024;
+const rejectLoggedAt = new Map();
+
+function shouldLogReject(ip) {
+    const now = Date.now();
+
+    if (rejectLoggedAt.size >= REJECT_LOG_MAX_KEYS) {
+        for (const [key, at] of rejectLoggedAt) {
+            if (now - at >= REJECT_LOG_WINDOW_MS) rejectLoggedAt.delete(key);
+        }
+        // Still full: every entry is fresh, so this is an active flood and the
+        // one-per-window guarantee matters more than per-source accuracy.
+        if (rejectLoggedAt.size >= REJECT_LOG_MAX_KEYS) return false;
+    }
+
+    const last = rejectLoggedAt.get(ip);
+    if (last !== undefined && now - last < REJECT_LOG_WINDOW_MS) return false;
+    rejectLoggedAt.set(ip, now);
+    return true;
+}
+
+/**
  * Fastify preHandler that rejects unauthenticated requests.
  * Attaches `request.session` on success.
  */
 export function requireSession(request, reply, done) {
     const session = readSession(request, reply);
     if (!session) {
-        logAuthEvent({
-            event: 'session.reject',
-            outcome: 'denied',
-            ip: request.ip,
-            userAgent: request.headers['user-agent'],
-            detail: `${request.method} ${request.url}`,
-        });
+        // A request with no session cookie at all is just a browser that is not
+        // signed in, and says nothing. A cookie the server refuses does.
+        const presentedToken = !!request.cookies?.[config.cookie.session];
+        if (presentedToken && shouldLogReject(request.ip || 'unknown')) {
+            logAuthEvent({
+                event: 'session.reject',
+                outcome: 'denied',
+                ip: request.ip,
+                userAgent: request.headers['user-agent'],
+                detail: `${request.method} ${request.url}`,
+            });
+        }
         reply.code(401).send({ error: 'unauthenticated' });
         return;
     }

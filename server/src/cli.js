@@ -159,7 +159,9 @@ async function main() {
         return;
     }
 
-    const entry = COMMANDS[command];
+    // Own property only: a bare lookup would resolve "constructor" or
+    // "toString" to something off Object.prototype and fail confusingly.
+    const entry = Object.hasOwn(COMMANDS, command) ? COMMANDS[command] : null;
     if (!entry) {
         out(`Unknown command "${command}". Run without arguments for the list.`);
         process.exitCode = 1;

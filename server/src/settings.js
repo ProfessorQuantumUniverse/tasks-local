@@ -16,13 +16,56 @@ const defaultsPath = join(here, '..', '..', 'shared', 'settings-defaults.json');
 
 export const DEFAULT_SETTINGS = Object.freeze(JSON.parse(readFileSync(defaultsPath, 'utf8')));
 
-const MAX_STRING_LENGTH = 120;
+const HEX_COLOUR = /^#[0-9a-f]{6}$/i;
 
 /**
- * Drop unknown keys and anything of the wrong type.
+ * What each non-boolean preference is allowed to be.
  *
- * A preference blob is stored verbatim and later fed straight into the DOM, so
- * only values shaped like the defaults are allowed through.
+ * These values do not stay data: the browser writes them into CSS custom
+ * properties and into class names, and an import file is a preference blob from
+ * an untrusted source. Accepting "some string of at most N characters" would
+ * mean whatever ends up in `--card-border-style` or `--filled-symbol` is
+ * whatever the file said. The lists mirror the choices the settings UI offers
+ * (web/index.html), so anything reachable through the app still round-trips.
+ */
+
+// Same list as the one routes/tasks.js validates repeatType against; kept here
+// rather than imported so this module does not depend on a route.
+const REPEAT_TYPES = ['none', 'daily', 'every2days', 'every3days', 'weekly', 'monthly'];
+
+const CONSTRAINTS = {
+    fontFamily: { enum: ['Exo 2', 'Orbitron', 'Audiowide', 'Nasalization', 'Rajdhani', 'Inter', 'Share Tech Mono', 'JetBrains Mono', 'Press Start 2P', 'VT323'] },
+    accentColor: { pattern: HEX_COLOUR },
+    cardBackground: { enum: ['jet', 'dark', 'deep', 'charcoal'] },
+    animationSpeed: { enum: ['normal', 'slow', 'fast', 'off'] },
+    backgroundPattern: { enum: ['none', 'dots', 'grid'] },
+    borderStyle: { enum: ['solid', 'dashed', 'double'] },
+    progressBoxShape: { enum: ['rounded', 'square', 'pill'] },
+    accentGlow: { enum: ['normal', 'dim', 'intense', 'off'] },
+    progressStyle: { enum: ['boxes', 'bar'] },
+    filledBoxSymbol: { enum: ['✓', '✦', '★', '▓', '⚡', '●'] },
+    importantPulseSpeed: { enum: ['slow', 'medium', 'fast'] },
+    cardEntryAnim: { enum: ['pop', 'fade', 'slide', 'none'] },
+    dateFormat: { enum: ['de', 'iso'] },
+    defaultRepeatType: { enum: REPEAT_TYPES },
+    firstDayOfWeek: { enum: ['monday', 'sunday'] },
+
+    // Ranges match the sliders in the settings UI. Out-of-range numbers are
+    // clamped rather than dropped, so a value from a slightly older or newer
+    // export lands on the nearest legal one instead of silently resetting.
+    fontSize: { min: 13, max: 19 },
+    cardRadius: { min: 0, max: 28 },
+    borderWidth: { min: 0, max: 4 },
+    cardSpacing: { min: 8, max: 24 },
+    taskTitleSize: { min: 16, max: 26 },
+    dueDateWarningDays: { min: 1, max: 14 },
+};
+
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+/**
+ * Drop unknown keys, anything of the wrong type, and anything outside the set
+ * of values the app itself can produce.
  */
 export function sanitizePreferences(input) {
     if (!input || typeof input !== 'object' || Array.isArray(input)) return { ...DEFAULT_SETTINGS };
@@ -31,17 +74,23 @@ export function sanitizePreferences(input) {
     for (const [key, fallback] of Object.entries(DEFAULT_SETTINGS)) {
         if (!Object.prototype.hasOwnProperty.call(input, key)) continue;
         const value = input[key];
+        const rule = CONSTRAINTS[key];
 
         if (typeof fallback === 'boolean') {
             if (typeof value === 'boolean') result[key] = value;
         } else if (typeof fallback === 'number') {
-            if (typeof value === 'number' && Number.isFinite(value)) {
-                result[key] = Math.round(value);
-            }
+            if (typeof value !== 'number' || !Number.isFinite(value)) continue;
+            const rounded = Math.round(value);
+            result[key] = rule ? clamp(rounded, rule.min, rule.max) : rounded;
         } else if (typeof fallback === 'string') {
-            if (typeof value === 'string' && value.length <= MAX_STRING_LENGTH) {
-                result[key] = value;
+            if (typeof value !== 'string') continue;
+            if (rule?.enum) {
+                if (rule.enum.includes(value)) result[key] = value;
+            } else if (rule?.pattern) {
+                if (rule.pattern.test(value)) result[key] = value.toLowerCase();
             }
+            // A string preference with no rule is a bug in this table, not a
+            // reason to store an unchecked value: keep the default.
         }
     }
     return result;
@@ -75,7 +124,10 @@ function writeJson(key, value) {
 }
 
 export function getPreferences() {
-    return { ...DEFAULT_SETTINGS, ...(readJson('preferences') || {}) };
+    // Sanitised on the way out as well: rows written by an older build predate
+    // these rules, and nothing should reach the browser unchecked because of
+    // when it happened to be stored.
+    return sanitizePreferences(readJson('preferences') || {});
 }
 
 export function setPreferences(input) {

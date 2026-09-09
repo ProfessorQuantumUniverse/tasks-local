@@ -53,16 +53,6 @@ export async function verifySecret(secret, stored) {
     }
 }
 
-/** Constant time comparison for two strings of arbitrary length. */
-export function safeEqual(a, b) {
-    const ba = Buffer.from(String(a));
-    const bb = Buffer.from(String(b));
-    // Hash first so that differing lengths do not throw and do not leak length.
-    const ha = createHash('sha256').update(ba).digest();
-    const hb = createHash('sha256').update(bb).digest();
-    return timingSafeEqual(ha, hb);
-}
-
 const RECOVERY_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no look-alikes
 
 /** Human transcribable recovery code, ~50 bits of entropy. */

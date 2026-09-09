@@ -2,7 +2,17 @@ import state from './state.js';
 
 /** Formatting and date helpers shared by the card renderer. */
 
+const DEFAULT_ACCENT_RGB = '0, 255, 136';
+
+/**
+ * "#rrggbb" -> "r, g, b", for feeding an --accent-rgb custom property.
+ *
+ * Anything that is not a six digit hex colour falls back to the default rather
+ * than producing "NaN, NaN, NaN", which would silently break every rgba() in
+ * the stylesheet.
+ */
 export function hexToRgb(hex) {
+    if (typeof hex !== 'string' || !/^#[0-9a-f]{6}$/i.test(hex)) return DEFAULT_ACCENT_RGB;
     const r = parseInt(hex.slice(1, 3), 16);
     const g = parseInt(hex.slice(3, 5), 16);
     const b = parseInt(hex.slice(5, 7), 16);

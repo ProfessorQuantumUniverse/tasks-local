@@ -18,7 +18,12 @@ const taskBody = {
     type: 'object',
     additionalProperties: false,
     properties: {
-        title: { type: 'string', minLength: 1, maxLength: 500 },
+        // The handler trims before storing, so `minLength: 1` alone would let a
+        // title of nothing but spaces through and save it as an empty string.
+        // The unanchored pattern demands at least one non-whitespace character.
+        title: {
+            type: 'string', minLength: 1, maxLength: 500, pattern: '\\S',
+        },
         dueDate: { type: ['string', 'null'], pattern: DATE_PATTERN },
         repeatType: { type: 'string', enum: REPEAT_TYPES },
         progress: { type: 'integer', minimum: 0, maximum: 3 },

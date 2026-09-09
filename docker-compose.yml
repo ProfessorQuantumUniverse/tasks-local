@@ -10,11 +10,16 @@ services:
     # PID 1 that reaps zombies and forwards signals.
     init: true
 
-    # No ports published. The container is reachable only from the proxy
-    # network, so nothing on the LAN can talk to it directly and the reverse
-    # proxy is the single way in. See docs/nginx-proxy-manager.md.
-    expose:
-      - "8080"
+    # Nginx Proxy Manager runs in a different LXC, so it cannot reach a Docker
+    # network on this host: the port has to be published on the Docker LXC and
+    # NPM forwards to <docker-lxc-ip>:${HOST_PORT}. See
+    # docs/nginx-proxy-manager.md.
+    #
+    # BIND_ADDR pins the listener to one interface of the Docker LXC. Leave it
+    # at 0.0.0.0 unless the LXC has several interfaces and you know which one
+    # NPM comes in on.
+    ports:
+      - "${BIND_ADDR:-0.0.0.0}:${HOST_PORT:-8080}:8080"
 
     environment:
       # ── Required ──
@@ -31,8 +36,12 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       # Local time zone, so "today" and due dates match your calendar.
       TZ: ${TZ:-Europe/Berlin}
-      # Only these proxy sources are believed when they set X-Forwarded-For.
-      TRUST_PROXY: ${TRUST_PROXY:-loopback,linklocal,uniquelocal}
+      # Which sources may set X-Forwarded-For. The port is published on the
+      # LAN now, so "private ranges" is no longer a meaningful restriction --
+      # any host on the LAN is in one. Default to trusting nobody, and set
+      # this to the Nginx Proxy Manager LXC's IP to get real client addresses
+      # back into the rate limiter and the audit log.
+      TRUST_PROXY: ${TRUST_PROXY:-false}
 
     volumes:
       - tasks-data:/data
@@ -47,28 +56,20 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    pids_limit: 256
-
+    # Both belong under deploy.resources on current Compose: a top-level
+    # `pids_limit` alongside a `deploy` block is rejected as a conflicting
+    # definition of the same limit.
     deploy:
       resources:
         limits:
           memory: 512M
+          pids: 256
 
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
-
-    networks:
-      - proxy
-
-networks:
-  # Created by your Nginx Proxy Manager stack. Set PROXY_NETWORK if yours has
-  # a different name:  docker network ls
-  proxy:
-    external: true
-    name: ${PROXY_NETWORK:-npm_default}
 
 volumes:
   tasks-data:

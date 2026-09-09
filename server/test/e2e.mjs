@@ -40,15 +40,35 @@ function storeCookies(response) {
     }
 }
 
-function cookieHeader() {
-    return [...jar.entries()].map(([k, v]) => `${k}=${v}`).join('; ');
+/** `override` replaces jar entries for this one request; null removes one. */
+function cookieHeader(override) {
+    const merged = new Map(jar);
+    for (const [name, value] of Object.entries(override || {})) {
+        if (value === null) merged.delete(name);
+        else merged.set(name, value);
+    }
+    return [...merged.entries()].map(([k, v]) => `${k}=${v}`).join('; ');
 }
 
-async function call(path, { method = 'GET', body, origin = ORIGIN, raw = false } = {}) {
+/** Pull one cookie value straight out of a response, bypassing the jar. */
+function cookieFrom(setCookies, name) {
+    for (const line of setCookies || []) {
+        const [pair] = line.split(';');
+        const index = pair.indexOf('=');
+        if (pair.slice(0, index).trim() === name) return pair.slice(index + 1).trim();
+    }
+    return null;
+}
+
+const CHALLENGE_COOKIE = 'tasks_challenge';
+
+async function call(path, {
+    method = 'GET', body, origin = ORIGIN, raw = false, cookies: override,
+} = {}) {
     const headers = { Accept: 'application/json' };
     if (body !== undefined) headers['Content-Type'] = 'application/json';
     if (origin) headers.Origin = origin;
-    const cookies = cookieHeader();
+    const cookies = cookieHeader(override);
     if (cookies) headers.Cookie = cookies;
 
     const response = await fetch(`${BASE}${path}`, {
@@ -57,6 +77,7 @@ async function call(path, { method = 'GET', body, origin = ORIGIN, raw = false }
         body: body === undefined ? undefined : JSON.stringify(body),
         redirect: 'manual',
     });
+    const setCookies = response.headers.getSetCookie?.() || [];
     storeCookies(response);
     if (raw) return response;
 
@@ -66,7 +87,7 @@ async function call(path, { method = 'GET', body, origin = ORIGIN, raw = false }
     } catch {
         payload = null;
     }
-    return { status: response.status, body: payload };
+    return { status: response.status, body: payload, setCookies };
 }
 
 // ── Minimal CBOR encoder ──────────────────────────────────────────────────
@@ -277,6 +298,9 @@ async function main() {
     });
     check('unknown body field rejected', extraField.status === 400, `got ${extraField.status}`);
 
+    const blankTitle = await call('/api/tasks', { method: 'POST', body: { title: '   ' } });
+    check('whitespace-only title rejected', blankTitle.status === 400, `got ${blankTitle.status}`);
+
     // ── Settings ──
     console.log('\nSettings');
     const settings = await call('/api/settings');
@@ -290,6 +314,31 @@ async function main() {
     check('unknown preference dropped', savedPrefs.body?.preferences?.bogusKey === undefined);
     check('wrongly typed preference falls back to default',
         savedPrefs.body?.preferences?.fontSize === settings.body.defaults.fontSize);
+
+    // Preferences end up in CSS custom properties, and an import file is an
+    // untrusted source of them, so values outside the offered sets are refused.
+    const hostilePrefs = await call('/api/settings/preferences', {
+        method: 'PUT',
+        body: {
+            preferences: {
+                accentColor: 'red; background: url(//evil)',
+                borderStyle: 'solid"); } body { display: none',
+                filledBoxSymbol: '"; content: url(//evil)',
+                fontFamily: 'Comic Sans',
+                fontSize: 4096,
+            },
+        },
+    });
+    const clean = hostilePrefs.body?.preferences || {};
+    check('non-colour accent refused', clean.accentColor === settings.body.defaults.accentColor,
+        `got ${clean.accentColor}`);
+    check('unlisted border style refused', clean.borderStyle === settings.body.defaults.borderStyle,
+        `got ${clean.borderStyle}`);
+    check('unlisted progress symbol refused', clean.filledBoxSymbol === settings.body.defaults.filledBoxSymbol,
+        `got ${clean.filledBoxSymbol}`);
+    check('unlisted font family refused', clean.fontFamily === settings.body.defaults.fontFamily,
+        `got ${clean.fontFamily}`);
+    check('out-of-range font size clamped', clean.fontSize === 19, `got ${clean.fontSize}`);
 
     const savedOrder = await call('/api/settings/order', { method: 'PUT', body: { order: [taskId] } });
     check('custom order stored', Array.isArray(savedOrder.body?.order) && savedOrder.body.order[0] === taskId);
@@ -348,6 +397,19 @@ async function main() {
 
     // ── Cloned authenticator: counter fails to advance ──
     console.log('\nClone detection');
+
+    // The counter only means anything once the signature has been verified.
+    // A response with a stale counter and a bogus signature is an ordinary
+    // failed login, not a clone, and must not drop everyone's sessions.
+    const forgeOptions = await call('/api/auth/login/options', { method: 'POST' });
+    const forged = authenticator.authenticate(forgeOptions.body.options.challenge, { bumpCounter: false });
+    forged.response.signature = b64url(randomBytes(70));
+    const forgedResult = await call('/api/auth/login/verify', { method: 'POST', body: { response: forged } });
+    check('forged assertion refused', forgedResult.status === 401, `got ${forgedResult.status}`);
+    const survived = await call('/api/auth/state');
+    check('a forged assertion leaves existing sessions alone',
+        survived.body?.authenticated === true);
+
     const cloneOptions = await call('/api/auth/login/options', { method: 'POST' });
     const stale = authenticator.authenticate(cloneOptions.body.options.challenge, { bumpCounter: false });
     // Roll the stored counter back the way a cloned key would behave.
@@ -430,6 +492,57 @@ async function main() {
     check('auth log records events', (log.body?.entries?.length || 0) > 0);
     check('auth log records the failed recovery attempt',
         log.body.entries.some((e) => e.event === 'recovery' && e.outcome === 'failed'));
+
+    // ── Enrollment token reuse ──
+    // The token is validated when options are requested but only spent when a
+    // credential is actually written, so several challenges can be collected
+    // from one token before any of them is redeemed. Only the first may work.
+    console.log('\nEnrollment token reuse');
+    const issued = await call('/api/auth/enrollment-token', { method: 'POST' });
+    const oneShotToken = issued.body?.token;
+    check('enrollment token issued', typeof oneShotToken === 'string' && oneShotToken.length > 20);
+
+    // Unauthenticated from here, so the token is what authorises the request.
+    await call('/api/auth/logout', { method: 'POST' });
+
+    const reuseOptionsA = await call('/api/auth/register/options', {
+        method: 'POST',
+        body: { enrollmentToken: oneShotToken },
+    });
+    const reuseChallengeA = cookieFrom(reuseOptionsA.setCookies, CHALLENGE_COOKIE);
+    const reuseOptionsB = await call('/api/auth/register/options', {
+        method: 'POST',
+        body: { enrollmentToken: oneShotToken },
+    });
+    const reuseChallengeB = cookieFrom(reuseOptionsB.setCookies, CHALLENGE_COOKIE);
+    check('two challenges collected from one token',
+        !!reuseChallengeA && !!reuseChallengeB && reuseChallengeA !== reuseChallengeB);
+
+    const deviceA = new SoftAuthenticator();
+    const firstUse = await call('/api/auth/register/verify', {
+        method: 'POST',
+        body: { response: deviceA.register(reuseOptionsA.body.options.challenge), name: 'Token-Gerät A' },
+        cookies: { [CHALLENGE_COOKIE]: reuseChallengeA },
+    });
+    check('first registration with the token succeeds', firstUse.status === 200,
+        JSON.stringify(firstUse.body));
+
+    // That registration signed us in; drop the session so the second attempt
+    // stands or falls on the token alone.
+    await call('/api/auth/logout', { method: 'POST' });
+
+    const deviceB = new SoftAuthenticator();
+    const secondUse = await call('/api/auth/register/verify', {
+        method: 'POST',
+        body: { response: deviceB.register(reuseOptionsB.body.options.challenge), name: 'Token-Gerät B' },
+        cookies: { [CHALLENGE_COOKIE]: reuseChallengeB },
+    });
+    check('a spent enrollment token cannot register a second passkey',
+        secondUse.status === 400, `got ${secondUse.status}`);
+
+    const afterReuse = await call('/api/auth/state');
+    check('the refused registration granted no session',
+        afterReuse.body?.authenticated === false);
 
     console.log(`\n${passed} passed, ${failed} failed\n`);
     process.exit(failed === 0 ? 0 : 1);

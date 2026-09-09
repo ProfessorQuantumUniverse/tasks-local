@@ -15,7 +15,7 @@
  *   node scripts/fetch-assets.mjs --update  download and rewrite the lock
  */
 
-import { mkdir, writeFile, readFile, rm } from 'node:fs/promises';
+import { mkdir, writeFile, readFile, readdir, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
@@ -166,6 +166,43 @@ async function collectStylesheet(url, { label, keepSubsets = true }) {
     return results;
 }
 
+/** Absolute path for a lock key, refusing anything that escapes web/vendor/. */
+function resolveLockKey(relative) {
+    const segments = relative.split(/[/\\]/);
+    const unsafe = relative === '' || segments.some((part, index) => part === '..'
+        || (part === '' && index !== segments.length - 1)
+        || /^[a-zA-Z]:$/.test(part));
+    if (unsafe) {
+        throw new Error(`vendor-lock.json contains an unsafe path: ${relative}`);
+    }
+    return join(vendorDir, relative.startsWith('confetti/') ? relative : `fonts/${relative}`);
+}
+
+/**
+ * Every file the page actually loads out of web/vendor/, expressed as lock keys.
+ *
+ * Verification has to work in both directions. Hashing only what the lock names
+ * says nothing about a file added afterwards, and the static server hands out
+ * whatever the directory contains -- so an unlisted file would ship unchecked.
+ */
+async function servedVendorFiles() {
+    const keys = [];
+
+    for (const name of await readdir(filesDir).catch(() => [])) {
+        if (name.startsWith('.')) continue;
+        keys.push(`files/${name}`);
+    }
+    for (const name of await readdir(fontsDir).catch(() => [])) {
+        if (name.endsWith('.css')) keys.push(name);
+    }
+    for (const name of await readdir(confettiDir).catch(() => [])) {
+        if (name.startsWith('.')) continue;
+        keys.push(`confetti/${name}`);
+    }
+
+    return keys;
+}
+
 /** Hash every file named in the lock and report any that do not match. */
 async function verifyLocal(lock) {
     const entries = Object.entries(lock.files || {});
@@ -177,7 +214,7 @@ async function verifyLocal(lock) {
     const mismatched = [];
 
     for (const [relative, expected] of entries) {
-        const target = join(vendorDir, relative.startsWith('confetti/') ? relative : `fonts/${relative}`);
+        const target = resolveLockKey(relative);
         if (!existsSync(target)) {
             missing.push(relative);
             continue;
@@ -187,10 +224,13 @@ async function verifyLocal(lock) {
         if (actual !== expected) mismatched.push(relative);
     }
 
-    if (missing.length > 0 || mismatched.length > 0) {
+    const unlisted = (await servedVendorFiles()).filter((key) => !lock.files[key]);
+
+    if (missing.length > 0 || mismatched.length > 0 || unlisted.length > 0) {
         const details = [
             ...missing.map((f) => `  missing:    ${f}`),
             ...mismatched.map((f) => `  changed:    ${f}`),
+            ...unlisted.map((f) => `  unlisted:   ${f}`),
         ].join('\n');
         throw new Error(`vendored assets do not match the lock file\n${details}`);
     }
@@ -273,7 +313,17 @@ async function main() {
 }
 `);
 
-    await writeFile(join(fontsDir, 'fonts.css'), cssParts.join('\n'), 'utf8');
+    // fonts.css is generated here rather than downloaded, but it is what the
+    // browser loads, so it belongs in the lock like everything else.
+    const fontsCss = Buffer.from(cssParts.join('\n'), 'utf8');
+    const fontsCssHash = sha384(fontsCss);
+    if (!UPDATE && lock.files['fonts.css'] && lock.files['fonts.css'] !== fontsCssHash) {
+        throw new Error(
+            `integrity mismatch for fonts.css\n  expected ${lock.files['fonts.css']}\n  got      ${fontsCssHash}`,
+        );
+    }
+    nextLock.files['fonts.css'] = fontsCssHash;
+    await writeFile(join(fontsDir, 'fonts.css'), fontsCss);
     log(`wrote ${seen.size} font files`);
 
     // ── canvas-confetti ───────────────────────────────────────────────────

@@ -50,6 +50,7 @@
     "files/vt323-400-latin.woff2": "sha384-QJLvofbGdhBPL6ITttGSyiYZXfA3tOmIyRlsd0l0hWuY9sVMU1aNCMYgs95btLjw",
     "files/material-symbols-outlined-400-fallback.woff2": "sha384-SZPGbCSmc1krHyjUhRP0HyxQQAjDadJecfY331+F+JmMj9X7nOU8oGSULXqXbm4z",
     "files/nasalization-400.woff": "sha384-2WNn6gXWtmPKkytM1e5SdJuCYGXxr3RDeVtNLcEN5+3E7UEfDvYu+RxcUEmp/shE",
+    "fonts.css": "sha384-YtpYo9wPViOJg9qTiilut5wrtEM9/2zgVfL4gMUqF1n4ojxm7wqjc52khBpkHBy4",
     "confetti/confetti.browser.min.js": "sha384-xgNdoEQu0JeBEAN3/f7mrS+EPOsrmARCvhS7PEpk7QI2wvo4YOF3xY3EjQGKHAY9"
   }
 }

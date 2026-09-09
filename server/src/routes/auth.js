@@ -20,7 +20,6 @@ import {
 } from '../auth/webauthn.js';
 import {
     checkEnrollmentToken,
-    consumeEnrollmentToken,
     issueEnrollmentToken,
     regenerateRecoveryCodes,
     recoveryCodeStatus,
@@ -133,10 +132,15 @@ export default async function authRoutes(fastify) {
             const challengeId = request.cookies?.[config.cookie.challenge];
             reply.clearCookie(config.cookie.challenge, { path: '/' });
 
+            // Read once, before the credential is written: a challenge that was
+            // authorised by a session must still be backed by one now.
+            const hadSession = !!readSession(request, reply);
+
             const result = await completeRegistration({
                 response: request.body.response,
                 challengeId,
                 name: request.body.name,
+                hasSession: hadSession,
             });
 
             if (!result.ok) {
@@ -150,19 +154,12 @@ export default async function authRoutes(fastify) {
                 return reply.code(400).send({ error: 'registration_failed' });
             }
 
-            // Burn the enrollment token only now that a usable passkey exists,
-            // so a failed attempt does not lock the owner out.
-            if (result.enrollmentTokenHash) {
-                consumeEnrollmentToken(result.enrollmentTokenHash);
-            }
-
             const isFirstCredential = credentialCount() === 1;
             let recoveryCodes = null;
             if (isFirstCredential) {
                 recoveryCodes = await regenerateRecoveryCodes();
             }
 
-            const hadSession = !!readSession(request, reply);
             if (!hadSession) {
                 createSession(reply, {
                     credentialId: result.credentialId,

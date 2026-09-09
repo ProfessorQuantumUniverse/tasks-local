@@ -38,10 +38,12 @@ Wiederverwenden oder Abgreifen.
   `APP_ORIGIN` gebunden. Eine nachgebaute Seite unter einer anderen Domain
   bekommt vom Browser schlicht keine Signatur — kein Aufmerksamkeitstest, der
   schiefgehen kann.
-- **Klon-Erkennung.** Der Signaturzähler wird vor der Verifikation geprüft.
-  Steigt er nicht an, wird die Anmeldung abgelehnt **und alle bestehenden
-  Sitzungen werden beendet**, weil das der klassische Hinweis auf einen
-  duplizierten Authenticator ist.
+- **Klon-Erkennung.** Steigt der Signaturzähler nicht an, wird die Anmeldung
+  abgelehnt **und alle bestehenden Sitzungen werden beendet**, weil das der
+  klassische Hinweis auf einen duplizierten Authenticator ist. Geprüft wird
+  der Zähler erst, **nachdem** die Signatur verifiziert ist: Sonst könnte eine
+  unsignierte Antwort mit niedrigem Zähler als Klon durchgehen und jede
+  Sitzung der Instanz beenden.
 - **Challenges** liegen serverseitig, werden über eine zufällige ID in einem
   kurzlebigen Cookie referenziert und beim ersten Zugriff gelöscht. Eine
   Assertion lässt sich nicht wiederverwenden.
@@ -58,7 +60,14 @@ Zugriff erzeugen kann. Sie verlangt immer einen von drei Nachweisen:
 
 Enrollment-Token sind einmalig, laufen ab und werden nur gehasht gespeichert.
 Verbraucht werden sie erst, **wenn** ein Passkey erfolgreich entstanden ist —
-ein abgebrochener Versuch sperrt dich also nicht aus.
+ein abgebrochener Versuch sperrt dich also nicht aus. Entwertung und Anlegen
+des Passkeys passieren in **derselben Transaktion**: Ein Token bleibt beim
+Anfordern der Optionen gültig, lässt sich also mehrfach in Challenges
+umwandeln, aber nur die erste davon kann ihn einlösen.
+
+Eine Challenge, die über eine bestehende Sitzung autorisiert wurde, wird beim
+Abschluss erneut gegen eine lebende Sitzung geprüft. Sitzungen zu widerrufen
+stoppt damit auch eine Registrierung, die kurz davor begonnen wurde.
 
 ### Recovery-Codes
 
@@ -139,7 +148,10 @@ Zustand — und dort ohne jede eingesetzte Variable.
 - **Schriften und Confetti liegen im Repository** und werden beim Build gegen
   `scripts/vendor-lock.json` geprüft. Weicht ein Byte ab, bricht der Build ab.
   Der Build braucht dafür kein Netz — und schlägt auch nicht fehl, nur weil
-  ein CDN inzwischen eine neuere Version ausliefert.
+  ein CDN inzwischen eine neuere Version ausliefert. Die Prüfung greift in
+  beide Richtungen: Auch die erzeugte `fonts.css` steht im Lock, und eine
+  Datei unter `web/vendor/`, die dort **nicht** aufgeführt ist, lässt den
+  Build ebenfalls scheitern — sonst würde sie ungeprüft mit ausgeliefert.
 
 ---
 
@@ -157,6 +169,15 @@ statt stillschweigend zurechtgebogen. Einstellungen werden zusätzlich gegen
 `shared/settings-defaults.json` gefiltert: unbekannte Schlüssel fallen weg,
 falsch typisierte Werte fallen auf den Standard zurück.
 
+Bei Einstellungen bleibt es nicht beim Typ. Jeder Wert wird gegen die Menge
+geprüft, die die Oberfläche überhaupt anbietet — Aufzählungen für Schriftart,
+Rahmenstil oder Fortschrittssymbol, `#rrggbb` für die Akzentfarbe, feste
+Bereiche für die Zahlenwerte. Der Grund ist der Verwendungsort: Diese Werte
+landen im Browser in CSS-Custom-Properties, und eine Importdatei ist eine
+Quelle für sie, die niemand kontrolliert hat. Werte werden auch beim *Lesen*
+noch einmal gefiltert, damit ein älterer Datenbankstand nichts Ungeprüftes
+durchreicht.
+
 Alle SQL-Zugriffe laufen über vorbereitete Statements mit gebundenen
 Parametern.
 
@@ -171,9 +192,21 @@ Parametern.
 | Registrierung, Token, Recovery-Codes | 10 / 5 Minuten |
 | Recovery-Code einlösen | 5 / 15 Minuten |
 
-Die Quell-IP stammt aus `X-Forwarded-For`, aber nur von Absendern innerhalb
-privater Netze (`TRUST_PROXY`). Auf `true` gesetzt könnte jeder seine Adresse
-fälschen und das Limit umgehen — deshalb ist das nicht der Standard.
+Die Quell-IP stammt aus `X-Forwarded-For`, aber nur von den Absendern, die
+`TRUST_PROXY` nennt. Weil Nginx Proxy Manager in einem eigenen LXC läuft und
+der Port dafür im LAN veröffentlicht ist, gehört dort **die IP des NPM-LXC**
+hinein und nichts Breiteres:
+
+```
+TRUST_PROXY=10.0.0.10
+```
+
+Ein Bereich wie `uniquelocal` wäre hier wirkungslos — jeder Host im LAN liegt
+in einem privaten Bereich und könnte den Header selbst setzen. Auf `true`
+gesetzt könnte es jeder, auch von außen. Der Standard ist deshalb `false`:
+Dann zählt ausschließlich die tatsächliche Absenderadresse. Das ist sicher,
+kostet aber die Unterscheidung zwischen deinen Geräten — alle teilen sich ein
+Budget, und im Protokoll steht überall die Proxy-Adresse.
 
 ---
 
@@ -187,16 +220,47 @@ fälschen und das Limit umgehen — deshalb ist das nicht der Standard.
 | `cap_drop: ALL` | keine Linux-Capabilities |
 | `no-new-privileges` | kein setuid-Aufstieg |
 | `tmpfs /tmp` mit `noexec,nosuid,nodev` | kein Ausführen aus dem einzigen Schreibpfad |
-| `pids_limit: 256`, 512 MB RAM | begrenzt, was ein Fehler anrichten kann |
-| kein veröffentlichter Port | erreichbar nur über den Reverse Proxy |
+| `pids: 256`, 512 MB RAM | begrenzt, was ein Fehler anrichten kann |
+| Port nur auf dem Docker-LXC | siehe unten |
 
 Nachprüfbar:
 
 ```bash
 docker exec tasks id                       # uid=1000(node)
 docker exec tasks touch /newfile           # Read-only file system
-docker ps --filter name=tasks --format '{{.Ports}}'   # leer
+docker ps --filter name=tasks --format '{{.Ports}}'   # 0.0.0.0:8080->8080/tcp
 ```
+
+### Der veröffentlichte Port
+
+NPM läuft in einem anderen LXC als Docker, kann also kein Docker-Netz
+mitbenutzen. Der Port liegt damit im LAN statt nur in einem Bridge-Netz — der
+Reverse Proxy ist nicht mehr allein durch die Topologie der einzige Weg
+hinein.
+
+Was ein Gerät im LAN damit anfangen kann, ist trotzdem wenig:
+
+- **Anmelden nicht.** Passkeys sind an `APP_ORIGIN` gebunden und brauchen
+  einen sicheren Kontext. Über `http://<lxc-ip>:8080` gibt der Browser keine
+  Signatur heraus.
+- **Sitzung übernehmen nicht.** Die Cookies tragen `__Host-`, sind `Secure`
+  und werden über http nie gesendet.
+- **Schreiben nicht.** Die Origin-Prüfung lehnt jede Anfrage ab, deren
+  `Origin` nicht exakt `APP_ORIGIN` ist.
+
+Übrig bleiben die Anmeldeseite, die statischen Dateien und `/healthz`.
+Zugemacht gehört der Port trotzdem, auf dem Docker-LXC in der Kette
+`DOCKER-USER` — eine gewöhnliche `ufw`-Regel greift bei veröffentlichten
+Docker-Ports nicht:
+
+```bash
+iptables -I DOCKER-USER -p tcp --dport 8080 -s <npm-lxc-ip> -j ACCEPT
+iptables -A DOCKER-USER -p tcp --dport 8080 -j DROP
+```
+
+Liegen NPM und Docker später einmal auf demselben Host, ist ein gemeinsames
+Docker-Netz ohne veröffentlichten Port die bessere Lösung; die Vorlage dafür
+steht in `docker-compose.override.yml.example`.
 
 > Im unprivilegierten Proxmox-LXC greifen AppArmor- und seccomp-Profile je
 > nach Konfiguration nur eingeschränkt. Alle oben genannten Maßnahmen

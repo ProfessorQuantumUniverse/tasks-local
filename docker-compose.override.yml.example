@@ -1,13 +1,39 @@
-# Local debugging only. Copy to docker-compose.override.yml to publish the
-# port on the loopback interface of the Docker host, so you can curl the API
-# from inside the LXC without going through the proxy.
+# Optional. Copy to docker-compose.override.yml; Compose merges it over
+# docker-compose.yml automatically.
+#
+# ── Nginx Proxy Manager on the SAME Docker host ──────────────────────────
+#
+# The default stack publishes a port because NPM runs in its own LXC and has
+# to come in over the network. If you ever move NPM onto this Docker host,
+# a shared Docker network is the better arrangement: NPM reaches the
+# container by name, nothing on the LAN can talk to the app directly, and
+# TRUST_PROXY can go back to trusting private ranges because the only thing
+# on that network is the proxy.
+#
+# Uncomment the block below, and in .env set:
+#
+#   BIND_ADDR=127.0.0.1          # published port becomes loopback-only
+#   TRUST_PROXY=loopback,linklocal,uniquelocal
+#
+# In NPM the Forward Hostname is then the container name `tasks`, port 8080.
+#
+# services:
+#   app:
+#     networks:
+#       - proxy
+#
+# networks:
+#   proxy:
+#     external: true
+#     name: npm_default          # find yours with: docker network ls
+
+# ── Debugging from inside the Docker LXC ─────────────────────────────────
+#
+# No override file needed: set BIND_ADDR=127.0.0.1 in .env and the port is
+# reachable only on the LXC itself.
 #
 #   curl -i http://127.0.0.1:8080/healthz
 #
-# Note: passkeys will NOT work over this address. They are bound to
-# APP_ORIGIN, and browsers require a secure context. Use it for health checks
-# and API debugging, not for signing in.
-services:
-  app:
-    ports:
-      - "127.0.0.1:8080:8080"
+# Passkeys will NOT work over that address. They are bound to APP_ORIGIN and
+# browsers require a secure context, so it is good for health checks and API
+# debugging, not for signing in.

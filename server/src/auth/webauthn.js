@@ -7,6 +7,7 @@ import {
 import db from '../db.js';
 import config from '../config.js';
 import { randomToken } from './crypto.js';
+import { consumeEnrollmentToken } from './enrollment.js';
 
 /**
  * WebAuthn / passkey glue.
@@ -94,10 +95,24 @@ export async function buildRegistrationOptions({ enrollmentTokenHash = null } = 
     return { options, challengeId };
 }
 
-export async function completeRegistration({ response, challengeId, name }) {
+/**
+ * Finish a registration.
+ *
+ * `hasSession` is evaluated by the caller at *verify* time, not at options
+ * time: authorisation has to still hold when the credential is actually
+ * written, otherwise revoking a session would not stop a registration that was
+ * started just before it.
+ */
+export async function completeRegistration({ response, challengeId, name, hasSession = false }) {
     const stored = consumeChallenge(challengeId, CHALLENGE_TYPES.REGISTRATION);
     if (!stored) {
         return { ok: false, reason: 'challenge_expired' };
+    }
+
+    // A challenge with no enrollment token was only ever authorised by a live
+    // session. Re-check it here rather than trusting that it still exists.
+    if (!stored.enrollment_token_hash && !hasSession) {
+        return { ok: false, reason: 'not_authorized' };
     }
 
     let verification;
@@ -124,36 +139,39 @@ export async function completeRegistration({ response, challengeId, name }) {
         return { ok: false, reason: 'credential_already_registered' };
     }
 
-    db.prepare(
-        'INSERT INTO credentials (id, public_key, counter, transports, device_type, backed_up, name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-    ).run(
-        credential.id,
-        Buffer.from(credential.publicKey),
-        credential.counter ?? 0,
-        JSON.stringify(credential.transports || []),
-        credentialDeviceType || null,
-        credentialBackedUp ? 1 : 0,
-        String(name || 'Passkey').slice(0, 60),
-        new Date().toISOString(),
-    );
+    // Burning the token and writing the credential happen in one transaction.
+    // Nothing stops a caller fetching several challenges from one token before
+    // spending it, so the token has to be claimed at the moment the credential
+    // is created; consuming it afterwards would make a "single use" token good
+    // for as many registrations as challenges were fetched in advance.
+    let spent = false;
+    const claim = db.transaction(() => {
+        if (stored.enrollment_token_hash) {
+            if (!consumeEnrollmentToken(stored.enrollment_token_hash)) {
+                spent = true;
+                return;
+            }
+        }
+        db.prepare(
+            'INSERT INTO credentials (id, public_key, counter, transports, device_type, backed_up, name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        ).run(
+            credential.id,
+            Buffer.from(credential.publicKey),
+            credential.counter ?? 0,
+            JSON.stringify(credential.transports || []),
+            credentialDeviceType || null,
+            credentialBackedUp ? 1 : 0,
+            String(name || 'Passkey').slice(0, 60),
+            new Date().toISOString(),
+        );
+    });
+    claim();
 
-    return { ok: true, credentialId: credential.id, enrollmentTokenHash: stored.enrollment_token_hash };
-}
-
-/**
- * Read the signature counter out of authenticatorData.
- * Layout: rpIdHash(32) | flags(1) | counter(4) | ...
- * @returns {number|null} null when the field is unreadable
- */
-function readCounter(authenticatorDataB64) {
-    if (typeof authenticatorDataB64 !== 'string') return null;
-    try {
-        const bytes = Buffer.from(authenticatorDataB64, 'base64url');
-        if (bytes.length < 37) return null;
-        return bytes.readUInt32BE(33);
-    } catch {
-        return null;
+    if (spent) {
+        return { ok: false, reason: 'enrollment_token_spent' };
     }
+
+    return { ok: true, credentialId: credential.id };
 }
 
 export async function buildAuthenticationOptions() {
@@ -181,15 +199,6 @@ export async function completeAuthentication({ response, challengeId }) {
         return { ok: false, reason: 'unknown_credential' };
     }
 
-    // Check the signature counter before verifying, because the library raises
-    // a generic verification error for it. Doing it here keeps a cloned
-    // authenticator distinguishable from an ordinary bad signature, which is
-    // what lets the caller react to it as the security event it is.
-    const incomingCounter = readCounter(response?.response?.authenticatorData);
-    if (row.counter > 0 && incomingCounter !== null && incomingCounter <= row.counter) {
-        return { ok: false, reason: 'counter_replay' };
-    }
-
     let verification;
     try {
         verification = await verifyAuthenticationResponse({
@@ -201,7 +210,12 @@ export async function completeAuthentication({ response, challengeId }) {
             credential: {
                 id: row.id,
                 publicKey: new Uint8Array(row.public_key),
-                counter: row.counter,
+                // Deliberately 0, which switches off the library's own counter
+                // check; the real one runs below, after the signature has been
+                // verified. The library folds a counter regression into the
+                // same generic error as a bad signature, and the two have to be
+                // told apart: one is a cloned authenticator, the other is noise.
+                counter: 0,
                 transports: row.transports ? JSON.parse(row.transports) : undefined,
             },
         });
@@ -218,6 +232,11 @@ export async function completeAuthentication({ response, challengeId }) {
     // A counter that fails to advance on an authenticator that uses one is the
     // classic signal of a cloned credential. Refuse the login rather than
     // quietly accepting it.
+    //
+    // This runs only once the signature has been verified. Reacting to the
+    // counter earlier would let anyone who knows a credential id hand in an
+    // unsigned response and have the caller treat it as a clone -- which drops
+    // every session on the instance.
     if (row.counter > 0 && newCounter <= row.counter) {
         return { ok: false, reason: 'counter_replay' };
     }

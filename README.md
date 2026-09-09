@@ -5,13 +5,16 @@ Anmeldung ausschließlich per Passkey. Läuft als ein einziger Container hinter
 deinem Reverse Proxy.
 
 ```
-Browser ──► Cloudflare Tunnel ──► Nginx Proxy Manager ──► tasks (Container)
-                                                            └── /data/tasks.db
+Browser ──► Cloudflare Tunnel ──► Nginx Proxy Manager ──► Docker-LXC:8080
+                                       (eigener LXC)         └── tasks (Container)
+                                                                  └── /data/tasks.db
 ```
 
-Der App-Container veröffentlicht **keinen Port** auf dem Host. Er ist nur über
-das gemeinsame Docker-Netz erreichbar, der Reverse Proxy ist der einzige Weg
-hinein.
+Nginx Proxy Manager läuft in einem eigenen LXC, Docker mit Portainer in einem
+zweiten. Da sich beide kein Docker-Netz teilen, veröffentlicht der Stack
+seinen Port auf dem Docker-LXC und NPM leitet an dessen IP weiter. Wie der
+Port dabei auf die Proxy-Adresse eingegrenzt wird, steht in
+[docs/nginx-proxy-manager.md](docs/nginx-proxy-manager.md).
 
 ---
 
@@ -48,15 +51,16 @@ sind unverändert erhalten.
 
 ## Einrichtung mit Portainer
 
-### 1. Netzwerk prüfen
+### 1. IP-Adressen notieren
 
-Der App-Container muss im selben Docker-Netz liegen wie Nginx Proxy Manager:
+Zwei Adressen werden gleich gebraucht. Jeweils im betreffenden LXC:
 
 ```bash
-docker network ls
+hostname -I
 ```
 
-Notiere den Namen des NPM-Netzes (oft `npm_default` oder `proxy`).
+- die des **Docker-LXC** — sie kommt in NPM als *Forward Hostname*,
+- die des **NPM-LXC** — sie kommt in den Stack als `TRUST_PROXY`.
 
 ### 2. Stack anlegen
 
@@ -72,11 +76,15 @@ Unter **Environment variables** eintragen:
 
 ```
 APP_ORIGIN=https://tasks.deinedomain.de
-PROXY_NETWORK=npm_default
+TRUST_PROXY=10.0.0.10
 TZ=Europe/Berlin
 ```
 
-Alle weiteren Variablen sind optional, siehe [`.env.example`](.env.example).
+`TRUST_PROXY` ist die IP des NPM-LXC. Ohne sie läuft alles weiter, aber die
+App sieht jede Anfrage als vom Proxy kommend: Das Rate-Limit gilt dann für
+alle Geräte gemeinsam und im Sicherheitsprotokoll steht überall die
+Proxy-Adresse. Alle weiteren Variablen sind optional, siehe
+[`.env.example`](.env.example).
 
 Dann **Deploy the stack**. Portainer klont das Repo und baut das Image; der
 erste Build dauert ein paar Minuten, weil die Schriften geladen werden.

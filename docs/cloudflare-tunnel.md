@@ -26,19 +26,23 @@ aus dem LAN kommt.
 | Subdomain | `tasks` |
 | Domain | `deinedomain.de` |
 | Service Type | `HTTP` |
-| URL | `nginx-proxy-manager:80` |
+| URL | `10.0.0.10:80` — die IP des NPM-LXC |
+
+NPM läuft in einem eigenen LXC, `cloudflared` als Container im Docker-LXC.
+Ein Containername wäre von dort aus nicht auflösbar, deshalb steht hier die
+IP-Adresse des NPM-LXC.
 
 Weil NPM das Let's-Encrypt-Zertifikat hält und *Force SSL* aktiv ist,
 antwortet Port 80 mit einer Weiterleitung auf HTTPS. Cloudflare folgt ihr.
-Wenn du stattdessen direkt auf `https://nginx-proxy-manager:443` zeigst, setze
-**No TLS Verify**, denn der Name im Zertifikat ist deine Domain, nicht der
-Containername.
+Wenn du stattdessen direkt auf `https://10.0.0.10:443` zeigst, setze **No TLS
+Verify**, denn der Name im Zertifikat ist deine Domain, nicht eine IP.
 
 ---
 
 ## Container
 
-Als eigener Stack, im selben Netz wie NPM:
+Als eigener Stack im Docker-LXC. Er braucht kein besonderes Netz: Der Tunnel
+baut nur ausgehende Verbindungen auf und erreicht NPM über dessen IP.
 
 ```yaml
 services:
@@ -49,17 +53,10 @@ services:
     command: tunnel --no-autoupdate run
     environment:
       TUNNEL_TOKEN: ${TUNNEL_TOKEN:?set TUNNEL_TOKEN}
-    networks:
-      - proxy
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
-
-networks:
-  proxy:
-    external: true
-    name: ${PROXY_NETWORK:-npm_default}
 ```
 
 Den Token als Stack-Variable in Portainer setzen, nicht in die Datei
@@ -136,9 +133,13 @@ eingehenden Port.
 `docker logs cloudflared`. Meist ein falscher oder abgelaufener Token.
 
 **502 von Cloudflare**
-Der Tunnel erreicht NPM nicht. Beide Container müssen im selben Docker-Netz
-sein, und die Service-URL muss den Containernamen verwenden, nicht
-`localhost`.
+Der Tunnel erreicht NPM nicht. Die Service-URL muss die IP des NPM-LXC sein —
+weder `localhost` noch ein Containername, denn NPM läuft nicht in diesem
+Docker. Gegenprobe im Docker-LXC:
+
+```bash
+curl -I http://10.0.0.10:80
+```
 
 **Seite lädt, bleibt aber leer**
 Fast sicher Rocket Loader. Ausschalten, Cloudflare-Cache leeren, neu laden.
