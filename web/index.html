@@ -13,7 +13,13 @@
     <meta name="theme-color" content="#000000">
     <link rel="icon" href="/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
-    <link rel="manifest" href="/site.webmanifest">
+    <!-- crossorigin="use-credentials" is not optional behind a cookie based
+         access proxy (Cloudflare Access, Authelia, oauth2-proxy). Without it
+         the browser fetches the manifest anonymously, the proxy answers with a
+         redirect to its own login host, and manifest-src 'self' rightly blocks
+         that -- so the app has no icons and is not installable. Same-origin
+         URLs skip the CORS check, so this is harmless without such a proxy. -->
+    <link rel="manifest" href="/site.webmanifest" crossorigin="use-credentials">
 
     <!-- iOS ignores the manifest and wants its own meta tags. -->
     <meta name="mobile-web-app-capable" content="yes">
