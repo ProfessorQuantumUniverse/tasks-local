@@ -119,7 +119,10 @@ export function destroySession(request, reply) {
     if (token) {
         db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(sha256(token));
     }
-    reply.clearCookie(config.cookie.session, { path: '/' });
+    // The deletion has to carry the same attributes as the cookie: a
+    // __Host- cookie is only accepted with Secure, so a bare { path: '/' }
+    // was silently ignored and the browser kept sending the dead token.
+    reply.clearCookie(config.cookie.session, cookieOptions(0));
 }
 
 /** Drop every session except the caller's own. */

@@ -130,7 +130,7 @@ export default async function authRoutes(fastify) {
         },
         async (request, reply) => {
             const challengeId = request.cookies?.[config.cookie.challenge];
-            reply.clearCookie(config.cookie.challenge, { path: '/' });
+            reply.clearCookie(config.cookie.challenge, challengeCookieOptions());
 
             // Read once, before the credential is written: a challenge that was
             // authorised by a session must still be backed by one now.
@@ -205,7 +205,7 @@ export default async function authRoutes(fastify) {
         },
         async (request, reply) => {
             const challengeId = request.cookies?.[config.cookie.challenge];
-            reply.clearCookie(config.cookie.challenge, { path: '/' });
+            reply.clearCookie(config.cookie.challenge, challengeCookieOptions());
 
             const result = await completeAuthentication({
                 response: request.body.response,
