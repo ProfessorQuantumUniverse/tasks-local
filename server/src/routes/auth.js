@@ -97,7 +97,7 @@ export default async function authRoutes(fastify) {
                     logAuthEvent({
                         event: 'register.options',
                         outcome: 'denied',
-                        ip: request.ip,
+                        ip: request.clientIp,
                         userAgent: request.headers['user-agent'],
                         detail: hasCredentials ? 'invalid enrollment token' : 'first-run token missing or invalid',
                     });
@@ -147,7 +147,7 @@ export default async function authRoutes(fastify) {
                 logAuthEvent({
                     event: 'register.verify',
                     outcome: 'failed',
-                    ip: request.ip,
+                    ip: request.clientIp,
                     userAgent: request.headers['user-agent'],
                     detail: result.reason,
                 });
@@ -163,7 +163,7 @@ export default async function authRoutes(fastify) {
             if (!hadSession) {
                 createSession(reply, {
                     credentialId: result.credentialId,
-                    ip: request.ip,
+                    ip: request.clientIp,
                     userAgent: request.headers['user-agent'],
                 });
             }
@@ -171,7 +171,7 @@ export default async function authRoutes(fastify) {
             logAuthEvent({
                 event: 'register.verify',
                 outcome: 'success',
-                ip: request.ip,
+                ip: request.clientIp,
                 userAgent: request.headers['user-agent'],
                 detail: `credential ${result.credentialId.slice(0, 12)}…`,
             });
@@ -216,7 +216,7 @@ export default async function authRoutes(fastify) {
                 logAuthEvent({
                     event: 'login',
                     outcome: 'failed',
-                    ip: request.ip,
+                    ip: request.clientIp,
                     userAgent: request.headers['user-agent'],
                     detail: result.reason,
                 });
@@ -230,14 +230,14 @@ export default async function authRoutes(fastify) {
 
             createSession(reply, {
                 credentialId: result.credentialId,
-                ip: request.ip,
+                ip: request.clientIp,
                 userAgent: request.headers['user-agent'],
             });
 
             logAuthEvent({
                 event: 'login',
                 outcome: 'success',
-                ip: request.ip,
+                ip: request.clientIp,
                 userAgent: request.headers['user-agent'],
                 detail: `credential ${result.credentialId.slice(0, 12)}…`,
             });
@@ -251,7 +251,7 @@ export default async function authRoutes(fastify) {
         logAuthEvent({
             event: 'logout',
             outcome: 'success',
-            ip: request.ip,
+            ip: request.clientIp,
             userAgent: request.headers['user-agent'],
         });
         return reply.send({ ok: true });
@@ -278,7 +278,7 @@ export default async function authRoutes(fastify) {
                 logAuthEvent({
                     event: 'recovery',
                     outcome: 'failed',
-                    ip: request.ip,
+                    ip: request.clientIp,
                     userAgent: request.headers['user-agent'],
                 });
                 return reply.code(401).send({ error: 'recovery_failed' });
@@ -293,7 +293,7 @@ export default async function authRoutes(fastify) {
             logAuthEvent({
                 event: 'recovery',
                 outcome: 'success',
-                ip: request.ip,
+                ip: request.clientIp,
                 userAgent: request.headers['user-agent'],
             });
 
@@ -339,7 +339,7 @@ export default async function authRoutes(fastify) {
         logAuthEvent({
             event: 'credential.delete',
             outcome: 'success',
-            ip: request.ip,
+            ip: request.clientIp,
             userAgent: request.headers['user-agent'],
             detail: String(request.params.id).slice(0, 32),
         });
@@ -352,7 +352,7 @@ export default async function authRoutes(fastify) {
         logAuthEvent({
             event: 'enrollment.issue',
             outcome: 'success',
-            ip: request.ip,
+            ip: request.clientIp,
             userAgent: request.headers['user-agent'],
         });
         return reply.send({ token, expiresAt });
@@ -364,7 +364,7 @@ export default async function authRoutes(fastify) {
         logAuthEvent({
             event: 'recovery-codes.regenerate',
             outcome: 'success',
-            ip: request.ip,
+            ip: request.clientIp,
             userAgent: request.headers['user-agent'],
         });
         return reply.send({ codes });
@@ -397,7 +397,7 @@ export default async function authRoutes(fastify) {
         logAuthEvent({
             event: 'sessions.revoke-others',
             outcome: 'success',
-            ip: request.ip,
+            ip: request.clientIp,
             userAgent: request.headers['user-agent'],
             detail: `${removed} removed`,
         });

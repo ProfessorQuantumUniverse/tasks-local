@@ -69,7 +69,9 @@ TRUST_PROXY=10.0.0.10
 TZ=Europe/Berlin
 ```
 
-`TRUST_PROXY` ist die IP deines Reverse Proxy. Alles Weitere ist optional und
+`TRUST_PROXY` ist die IP deines Reverse Proxy. Hinter Cloudflare Tunnel
+zusätzlich `CLIENT_IP_HEADER=cf-connecting-ip`, siehe
+[docs/reverse-proxy.md](docs/reverse-proxy.md). Alles Weitere ist optional und
 in [`.env.example`](.env.example) erklärt. Dann **Deploy the stack**.
 
 ### Ersten Passkey registrieren

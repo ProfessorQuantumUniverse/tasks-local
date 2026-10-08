@@ -63,9 +63,9 @@ function cookieFrom(setCookies, name) {
 const CHALLENGE_COOKIE = 'tasks_challenge';
 
 async function call(path, {
-    method = 'GET', body, origin = ORIGIN, raw = false, cookies: override,
+    method = 'GET', body, origin = ORIGIN, raw = false, cookies: override, headers: extra,
 } = {}) {
-    const headers = { Accept: 'application/json' };
+    const headers = { Accept: 'application/json', ...extra };
     if (body !== undefined) headers['Content-Type'] = 'application/json';
     if (origin) headers.Origin = origin;
     const cookies = cookieHeader(override);
@@ -543,6 +543,59 @@ async function main() {
     const afterReuse = await call('/api/auth/state');
     check('the refused registration granted no session',
         afterReuse.body?.authenticated === false);
+
+    // ── Client address behind a proxy ──
+    // The runner trusts loopback and sets CLIENT_IP_HEADER=cf-connecting-ip,
+    // so these requests look as if they came through cloudflared: the nearest
+    // X-Forwarded-For hop is the connector, CF-Connecting-IP is the visitor.
+    console.log('\nClient address behind a proxy');
+    const viaTunnel = (visitor) => ({ 'X-Forwarded-For': '198.51.100.1', 'CF-Connecting-IP': visitor });
+
+    let lastRecoveryStatus = null;
+    for (let i = 0; i < 6; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        const attempt = await call('/api/auth/recovery', {
+            method: 'POST',
+            body: { code: 'AAAAA-BBBBB' },
+            headers: viaTunnel('203.0.113.7'),
+        });
+        lastRecoveryStatus = attempt.status;
+    }
+    check('recovery is rate limited per visitor', lastRecoveryStatus === 429, `got ${lastRecoveryStatus}`);
+
+    const otherVisitor = await call('/api/auth/recovery', {
+        method: 'POST',
+        body: { code: 'AAAAA-BBBBB' },
+        headers: viaTunnel('203.0.113.8'),
+    });
+    check('another visitor behind the same tunnel keeps its own budget',
+        otherVisitor.status === 401, `got ${otherVisitor.status}`);
+
+    const tunnelOptions = await call('/api/auth/login/options', {
+        method: 'POST',
+        headers: viaTunnel('203.0.113.9'),
+    });
+    const tunnelLogin = await call('/api/auth/login/verify', {
+        method: 'POST',
+        body: { response: second.authenticate(tunnelOptions.body.options.challenge) },
+        headers: viaTunnel('203.0.113.9'),
+    });
+    check('login through the tunnel succeeds', tunnelLogin.status === 200, JSON.stringify(tunnelLogin.body));
+
+    const tunnelLog = await call('/api/auth/log');
+    const tunnelEntries = tunnelLog.body?.entries || [];
+    check('audit log records the visitor, not the connector',
+        tunnelEntries.some((e) => e.event === 'login' && e.outcome === 'success' && e.ip === '203.0.113.9'));
+    check('failed recovery attempts are logged with the visitor address',
+        tunnelEntries.some((e) => e.event === 'recovery' && e.ip === '203.0.113.7'));
+
+    const tunnelSessions = await call('/api/auth/sessions');
+    check('the session records the visitor address',
+        tunnelSessions.body?.sessions?.find((s) => s.current)?.ip === '203.0.113.9');
+
+    const loggedOutAgain = await call('/api/auth/logout', { method: 'POST' });
+    check('logout expires the session cookie',
+        loggedOutAgain.setCookies.some((line) => line.startsWith('tasks_session=;') && /Max-Age=0/i.test(line)));
 
     console.log(`\n${passed} passed, ${failed} failed\n`);
     process.exit(failed === 0 ? 0 : 1);

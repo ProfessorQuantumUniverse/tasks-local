@@ -175,11 +175,11 @@ export function requireSession(request, reply, done) {
         // A request with no session cookie at all is just a browser that is not
         // signed in, and says nothing. A cookie the server refuses does.
         const presentedToken = !!request.cookies?.[config.cookie.session];
-        if (presentedToken && shouldLogReject(request.ip || 'unknown')) {
+        if (presentedToken && shouldLogReject(request.clientIp || 'unknown')) {
             logAuthEvent({
                 event: 'session.reject',
                 outcome: 'denied',
-                ip: request.ip,
+                ip: request.clientIp,
                 userAgent: request.headers['user-agent'],
                 detail: `${request.method} ${request.url}`,
             });
