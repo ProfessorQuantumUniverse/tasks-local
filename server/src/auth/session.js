@@ -119,7 +119,10 @@ export function destroySession(request, reply) {
     if (token) {
         db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(sha256(token));
     }
-    reply.clearCookie(config.cookie.session, { path: '/' });
+    // The deletion has to carry the same attributes as the cookie: a
+    // __Host- cookie is only accepted with Secure, so a bare { path: '/' }
+    // was silently ignored and the browser kept sending the dead token.
+    reply.clearCookie(config.cookie.session, cookieOptions(0));
 }
 
 /** Drop every session except the caller's own. */
@@ -172,11 +175,11 @@ export function requireSession(request, reply, done) {
         // A request with no session cookie at all is just a browser that is not
         // signed in, and says nothing. A cookie the server refuses does.
         const presentedToken = !!request.cookies?.[config.cookie.session];
-        if (presentedToken && shouldLogReject(request.ip || 'unknown')) {
+        if (presentedToken && shouldLogReject(request.clientIp || 'unknown')) {
             logAuthEvent({
                 event: 'session.reject',
                 outcome: 'denied',
-                ip: request.ip,
+                ip: request.clientIp,
                 userAgent: request.headers['user-agent'],
                 detail: `${request.method} ${request.url}`,
             });

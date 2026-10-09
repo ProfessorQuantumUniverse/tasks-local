@@ -40,6 +40,10 @@ services:
       # reverse proxy's IP to get real client addresses back into the rate
       # limiter and the audit log.
       TRUST_PROXY: ${TRUST_PROXY:-false}
+      # Header that carries the visitor's address, read only from a proxy
+      # TRUST_PROXY trusts. Behind Cloudflare Tunnel: cf-connecting-ip.
+      # Empty = off. See docs/reverse-proxy.md.
+      CLIENT_IP_HEADER: ${CLIENT_IP_HEADER:-}
 
     volumes:
       - tasks-data:/data

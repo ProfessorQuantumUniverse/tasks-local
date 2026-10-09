@@ -44,6 +44,11 @@ async function main() {
             HOST: '127.0.0.1',
             DATA_DIR: dataDir,
             LOG_LEVEL: 'warn',
+            // The suite talks to the server over loopback. Trusting it as a
+            // proxy lets the tests stand in for cloudflared; requests without
+            // X-Forwarded-For are unaffected.
+            TRUST_PROXY: 'loopback',
+            CLIENT_IP_HEADER: 'cf-connecting-ip',
         },
         stdio: ['ignore', 'pipe', 'pipe'],
     });

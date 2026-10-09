@@ -39,6 +39,39 @@ Nimm dort **keinen** Bereich wie `uniquelocal`: Der Port liegt im LAN, jeder
 Host im LAN ist in einem privaten Bereich und könnte `X-Forwarded-For` selbst
 setzen. `true` erst recht nicht.
 
+**4. Hinter Cloudflare Tunnel: `CLIENT_IP_HEADER=cf-connecting-ip`.**
+`TRUST_PROXY` allein reicht bei einer Kette aus mehreren Proxys nicht. NPM
+hängt die Adresse von cloudflared an `X-Forwarded-For` an, die App glaubt nur
+NPM — und landet damit bei cloudflared, nicht beim Besucher. Ergebnis: alle
+Besucher teilen sich ein Rate-Limit-Budget, und wer die Domain kennt, kann
+mit ein paar Anfragen Anmeldung und Recovery für alle blockieren.
+
+Cloudflare schreibt die echte Besucheradresse an seiner Edge in
+`CF-Connecting-IP` und überschreibt dabei, was der Besucher selbst
+mitgeschickt hat. Mit
+
+```
+TRUST_PROXY=<ip-des-proxy, der die App direkt erreicht>
+CLIENT_IP_HEADER=cf-connecting-ip
+```
+
+zählt die App diese Adresse — aber nur bei Anfragen, die von einer in
+`TRUST_PROXY` genannten Adresse kommen. Ein anderes Gerät im LAN kann den
+Header also nicht direkt an der App fälschen. Der Proxy reicht ihn aber
+ungeprüft durch: Ist NPM auch ohne den Tunnel erreichbar (LAN, offener Port
+443), kann dort jeder einen beliebigen `CF-Connecting-IP` mitschicken — dann
+den Proxy auf cloudflared beschränken oder den Header dort für andere
+Absender entfernen. Ohne `TRUST_PROXY` verweigert die App den Start
+mit dieser Einstellung, statt sie still zu ignorieren. Fehlt der Header oder
+enthält er keine gültige IP, gilt wie bisher `X-Forwarded-For`.
+
+Im Log steht dann neben `remoteAddress` (weiterhin die Adresse nach
+`TRUST_PROXY`, also die zum Prüfen von Punkt 3) ein Feld `clientAddress` mit
+der Besucheradresse. Die steht auch im Anmelde-Protokoll und in der
+Sitzungsliste.
+
+Leer lassen, wenn die App nicht hinter Cloudflare läuft.
+
 ---
 
 ## Stolpersteine
@@ -116,4 +149,4 @@ durchgereicht wird — `strict-transport-security`.
 | Anmeldeseite lädt, kein Passkey-Dialog | Keine HTTPS-Adresse, oder sie weicht von `APP_ORIGIN` ab. Im Log prüfen: `"origin":"https://…","rpID":"…"` |
 | „Anfrage blockiert. Öffne die App über ihre konfigurierte Adresse." | Der `Origin`-Header passt nicht zu `APP_ORIGIN`. Es gibt genau eine gültige Adresse — so ist es gewollt. |
 | Nach dem Anmelden sofort abgemeldet | Das Cookie kommt nicht an. Praktisch immer fehlendes HTTPS im Browser. |
-| Rate-Limit greift zu früh | `TRUST_PROXY` zeigt nicht auf den Proxy. |
+| Rate-Limit greift zu früh | `TRUST_PROXY` zeigt nicht auf den Proxy; hinter Cloudflare Tunnel fehlt `CLIENT_IP_HEADER=cf-connecting-ip`. |

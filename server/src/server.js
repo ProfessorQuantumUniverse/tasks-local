@@ -7,7 +7,9 @@ import { dirname, join } from 'node:path';
 
 import config from './config.js';
 import { credentialCount, pruneExpired } from './db.js';
-import { enforceSameOrigin, extraSecurityHeaders, helmetOptions } from './security.js';
+import {
+    clientIp, enforceSameOrigin, extraSecurityHeaders, helmetOptions,
+} from './security.js';
 import { buildStaticIndex, registerStatic } from './static.js';
 import { issueEnrollmentToken } from './auth/enrollment.js';
 import authRoutes from './routes/auth.js';
@@ -32,6 +34,7 @@ const fastify = Fastify({
                     method: request.method,
                     url: request.url,
                     remoteAddress: request.ip,
+                    ...(config.clientIpHeader ? { clientAddress: clientIp(request) } : {}),
                 };
             },
         },
@@ -50,6 +53,14 @@ const fastify = Fastify({
     },
     routerOptions: {
         ignoreTrailingSlash: true,
+    },
+});
+
+// The visitor's address as far as the proxy configuration allows; see
+// clientIp() in security.js. Used for rate limiting and the audit log.
+fastify.decorateRequest('clientIp', {
+    getter() {
+        return clientIp(this);
     },
 });
 
@@ -94,8 +105,8 @@ async function start() {
         global: true,
         max: 300,
         timeWindow: '1 minute',
-        // request.ip already honours the trusted proxy configuration.
-        keyGenerator: (request) => request.ip,
+        // Honours TRUST_PROXY and, when set, CLIENT_IP_HEADER.
+        keyGenerator: (request) => request.clientIp,
         addHeadersOnExceeding: { 'x-ratelimit-limit': false, 'x-ratelimit-remaining': false, 'x-ratelimit-reset': false },
         addHeaders: { 'x-ratelimit-limit': false, 'x-ratelimit-remaining': false, 'x-ratelimit-reset': false, 'retry-after': true },
         // statusCode must be part of the payload: without it the thrown object

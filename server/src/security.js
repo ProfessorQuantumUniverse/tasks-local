@@ -1,4 +1,26 @@
+import { isIP } from 'node:net';
 import config from './config.js';
+
+/**
+ * The visitor's address, for rate limiting and the audit log.
+ *
+ * Without CLIENT_IP_HEADER this is exactly `request.ip`, i.e. X-Forwarded-For
+ * as far as TRUST_PROXY allows. With it, the named header wins, but only when
+ * the direct peer is a trusted proxy: `request.ips` starts with the socket
+ * address and stops at the first untrusted hop, so a second entry exists only
+ * if the peer itself is trusted. Anything that is not a single, valid address
+ * falls back to `request.ip` rather than becoming a key a client can choose.
+ */
+export function clientIp(request) {
+    if (config.clientIpHeader) {
+        const hops = request.ips;
+        const value = request.headers?.[config.clientIpHeader];
+        if (hops && hops.length > 1 && typeof value === 'string' && isIP(value.trim())) {
+            return value.trim();
+        }
+    }
+    return request.ip;
+}
 
 /**
  * Cross-site request forgery defence.

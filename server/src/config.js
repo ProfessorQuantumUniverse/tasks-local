@@ -101,6 +101,20 @@ if (trustProxyRaw === 'false') {
     trustProxy = trustProxyRaw.split(',').map((entry) => entry.trim()).filter(Boolean);
 }
 
+// Behind a chain of proxies (Cloudflare -> cloudflared -> NPM -> app) the
+// nearest untrusted X-Forwarded-For entry is the tunnel connector, not the
+// visitor, so every request would land in one rate-limit bucket. Cloudflare
+// puts the visitor's address in CF-Connecting-IP and overwrites any value the
+// visitor sent. CLIENT_IP_HEADER names such a header; it is only believed on
+// requests that arrive from an address TRUST_PROXY trusts. Unset = off.
+const clientIpHeader = (process.env.CLIENT_IP_HEADER || '').trim().toLowerCase() || null;
+if (clientIpHeader && !/^[a-z0-9-]+$/.test(clientIpHeader)) {
+    fail(`CLIENT_IP_HEADER must be a plain header name such as cf-connecting-ip, got "${clientIpHeader}"`);
+}
+if (clientIpHeader && trustProxy === false) {
+    fail('CLIENT_IP_HEADER is only read from a trusted proxy: set TRUST_PROXY to the address of the proxy that connects to the app');
+}
+
 export const config = {
     env: process.env.NODE_ENV || 'production',
     host: process.env.HOST || '0.0.0.0',
@@ -137,6 +151,7 @@ export const config = {
     recoveryCodeCount: int('RECOVERY_CODE_COUNT', 10, { min: 4, max: 30 }),
 
     trustProxy,
+    clientIpHeader,
     hstsEnabled: bool('HSTS_ENABLED', originUrl.protocol === 'https:'),
 
     // Body limit: settings payloads are a few KB, imports are the largest case.

@@ -203,6 +203,12 @@ Absenderadresse. Sicher, kostet aber die Unterscheidung zwischen deinen
 Geräten: Alle teilen sich ein Budget, und im Protokoll steht überall die
 Proxy-Adresse.
 
+Hinter Cloudflare Tunnel endet `X-Forwarded-For` bei cloudflared, nicht beim
+Besucher. Dafür gibt es `CLIENT_IP_HEADER=cf-connecting-ip`: Der Header wird
+nur von einem Absender aus `TRUST_PROXY` angenommen und nur, wenn er genau
+eine gültige IP enthält; sonst gilt die Adresse wie oben. Details in
+[docs/reverse-proxy.md](docs/reverse-proxy.md).
+
 ---
 
 ## Container
