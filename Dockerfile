@@ -32,6 +32,12 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 
+# The app runs with plain `node`; npm, npx and corepack ship with the base
+# image but are never used at runtime. Removing them drops their bundled
+# dependencies (and the CVEs Trivy finds in them) from the image.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+        /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
+
 COPY --from=build --chown=root:root /build/server/node_modules ./server/node_modules
 COPY --chown=root:root server/package.json server/package-lock.json ./server/
 COPY --chown=root:root server/src ./server/src
